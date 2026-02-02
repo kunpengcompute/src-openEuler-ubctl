@@ -1,6 +1,6 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.1
+Version: 1.0.2
 Release: 0
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
@@ -69,6 +69,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Sat Jan 31 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.2-0
+- Modify the incorrect printing of register names in ubctl.
+
 * Wed Dec 10 2025 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.1-0
 - Modify TP/TA/SCC register query process.
 
