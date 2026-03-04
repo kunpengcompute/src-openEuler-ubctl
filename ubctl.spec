@@ -1,7 +1,7 @@
 Summary: Implementation of ubctl
 Name: ubctl
 Version: 1.0.3
-Release: 0
+Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}.tar.gz
@@ -9,6 +9,7 @@ Source0: %{name}.tar.gz
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
 BuildRequires:  make
+ExclusiveArch:  aarch64
 
 BuildRoot:      %{name}-%{version}-%{release}
 
@@ -69,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Wed Mar 4 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-1
+- Incorporate minor optimizations for various scenarios
+
 * Sat Feb 28 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-0
 - Adds support for query some functions
 
