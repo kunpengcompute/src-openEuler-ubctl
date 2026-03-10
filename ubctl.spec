@@ -1,12 +1,18 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.2
+Version: 1.0.3
 Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}.tar.gz
 
-Patch1 :0001-ub-ubctl-Modify-the-incorrect-printing-of-register-n.patch
+Patch1: 0001-ub-ubctl-Modify-the-incorrect-printing-of-register-n.patch
+Patch2: 0002-ub-ubctl-Supports-query-commands-and-can-retrieve-st.patch
+Patch3: 0003-ub-ubctl-Support-querying-statistical-indicators-at-.patch
+Patch4: 0004-ub-ubctl-Support-querying-real-time-bandwidth-statis.patch
+Patch5: 0005-ub-ubctl-Support-querying-firmware-version-numbers.patch
+Patch6: 0006-ub-ubctl-Support-querying-the-historical-status-of-p.patch
+Patch7: 0007-ub-ubctl-Incorporate-minor-optimizations-for-various.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -73,6 +79,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Tue Mar 10 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-1
+- Adds support for query some functions
+
 * Tue Mar 10 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.2-1
 - Modify the incorrect printing of register names in ubctl.
 

@@ -1,0 +1,259 @@
+From af054b6ade9e876686cb9b294f3e5417a5ee3a88 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Wed, 4 Mar 2026 14:19:31 +0800
+Subject: [PATCH 7/7] ub:ubctl:Incorporate minor optimizations for various
+ scenarios
+
+tool inclusion
+category: feature
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/13
+CVE: NA
+
+--------------------------------------------------------------------------
+
+Incorporate minor optimizations for various scenarios
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ u_utool_fw_version.c |  2 +-
+ u_utool_io_die.c     |  2 +-
+ u_utool_main.c       |  7 ++++---
+ u_utool_nl.c         |  4 ++--
+ u_utool_pkt.c        | 15 ++++++---------
+ u_utool_port_info.c  | 21 +++++++++++++++++++++
+ u_utool_tp.c         |  6 ++++--
+ 7 files changed, 39 insertions(+), 18 deletions(-)
+
+diff --git a/u_utool_fw_version.c b/u_utool_fw_version.c
+index 4050bf4..46798b3 100644
+--- a/u_utool_fw_version.c
++++ b/u_utool_fw_version.c
+@@ -33,7 +33,7 @@ int utool_fw_version_parse_rpc_pkt(struct fwctl_rpc_ub_out *fw_version_out)
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+-	version_data = (struct utool_fw_version_data *)(fw_version_out + 1);
++	version_data = (struct utool_fw_version_data *)(fw_version_out->data);
+ 	utool_reg_msg("firmware version: B%04X_%04X\n",
+ 		      (version_data->fw_version >> UTOOL_FW_HIGH_OFFSET) & UTOOL_FW_HIGH_MASK,
+ 		      version_data->fw_version & UTOOL_FW_HIGH_MASK);
+diff --git a/u_utool_io_die.c b/u_utool_io_die.c
+index aff9666..b1231da 100644
+--- a/u_utool_io_die.c
++++ b/u_utool_io_die.c
+@@ -29,7 +29,7 @@ static int utool_display_io_die_info(struct fwctl_io_die_info *data)
+ 	utool_reg_msg("\tdie_id: %u\n", data->die_id);
+ 	utool_reg_msg("\tport_count: %u\n", port_num);
+ 
+-	if (port_num == 0 || port_num > UTOOL_MAX_IO_DIE_PORT_NUM) {
++	if (port_num > UTOOL_MAX_IO_DIE_PORT_NUM) {
+ 		utool_err_msg("Port num is invalid.\n");
+ 		return UTOOL_ERR;
+ 	}
+diff --git a/u_utool_main.c b/u_utool_main.c
+index 1ad8fe0..767b6ec 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -18,6 +18,8 @@
+ #include "u_utool_dispatch.h"
+ #include "u_utool_io_die.h"
+ 
++#define UTOOL_INVALID_FD (-1)
++
+ enum utool_dev_step_flag {
+ 	UTOOL_DEV_STEP_SCAN = 0,
+ 	UTOOL_DEV_STEP_LS,
+@@ -66,13 +68,12 @@ static void utool_close(struct utool_dev *dev)
+ {
+ 	if (dev->fd >= 0) {
+ 		close(dev->fd);
++		dev->fd = UTOOL_INVALID_FD;
+ 	}
+ }
+ 
+ static int utool_open(struct utool_dev *dev)
+ {
+-#define UTOOL_INVALID_FD (-1)
+-
+ 	char *resolved_path = NULL;
+ 
+ 	dev->fd = UTOOL_INVALID_FD;
+@@ -432,7 +433,7 @@ int main(int argc, char *argv[])
+ 
+ 	ret = utool_main_parse_sub(argc, argv, &dev);
+ 	if (ret != UTOOL_OK) {
+-		return ret;
++		return ret == UTOOL_OK_LS ? UTOOL_OK : ret;
+ 	}
+ 
+ 	cmd_param = utool_get_cmd_param();
+diff --git a/u_utool_nl.c b/u_utool_nl.c
+index 1d813c2..60b8bde 100644
+--- a/u_utool_nl.c
++++ b/u_utool_nl.c
+@@ -848,7 +848,7 @@ static struct utool_field_info g_utool_ssu_sw_field_info[] = {
+ static struct utool_field_info g_utool_ssu_oq_field_info[] = {
+ 	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "port_id" },
+ 	{ false, true, UTOOL_REG_LOC8, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "reserved" },
+-	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC7, UTOOL_FIELD_INDEX_START, "ssu_oq_sel_index" },
++	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC7, UTOOL_FIELD_INDEX_START, "index" },
+ 	{ false, false, UTOOL_REG_LOC22, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "oq_inner_status_0" },
+ 	{ false, false, UTOOL_REG_LOC21, UTOOL_REG_LOC21, UTOOL_FIELD_INDEX_START, "tc_sch_rdy" },
+ 	{ false, true, UTOOL_REG_LOC18, UTOOL_REG_LOC20, UTOOL_FIELD_INDEX_START, "reserved" },
+@@ -862,7 +862,7 @@ static struct utool_field_info g_utool_ssu_oq_field_info[] = {
+ static struct utool_field_info g_utool_ssu_p2p_field_info[] = {
+ 	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "port_id" },
+ 	{ false, true, UTOOL_REG_LOC8, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "reserved" },
+-	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC7, UTOOL_FIELD_INDEX_START, "ssu_p2p_q_sel_index" },
++	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC7, UTOOL_FIELD_INDEX_START, "index" },
+ 	{ false, false, UTOOL_REG_LOC16, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "p2p_q_req_cell_num" },
+ 	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC15, UTOOL_FIELD_INDEX_START, "p2p_q_specu_cell_num" },
+ 	{ false, false, UTOOL_REG_LOC16, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "p2p_q_wait_data_ack_cnt" },
+diff --git a/u_utool_pkt.c b/u_utool_pkt.c
+index 8ec4178..3d831d4 100644
+--- a/u_utool_pkt.c
++++ b/u_utool_pkt.c
+@@ -65,9 +65,9 @@ static int utool_parse_param_check(struct fwctl_rpc_ub_out *out, struct utool_fi
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+-	if ((out->data_size == 0) || (out->data == NULL)) {
+-		utool_err_msg("Failed to parse pkt, param is invalid data_size==0(%d), data==NULL(%d).\n",
+-			      (out->data_size == 0), (out->data == NULL));
++	if ((out->data_size == 0)) {
++		utool_err_msg("Failed to parse pkt, param is invalid data_size==0(%d).\n",
++			      (out->data_size == 0));
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -201,9 +201,9 @@ static int utool_module_parse_input_check(struct fwctl_rpc_ub_out *out,
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+-	if ((out->data_size == 0) || (out->data == NULL)) {
+-		utool_err_msg("Failed to split module, param is invalid data_size==0(%d), data==NULL(%d).\n",
+-			      (out->data_size == 0), (out->data == NULL));
++	if ((out->data_size == 0)) {
++		utool_err_msg("Failed to split module, param is invalid data_size==0(%d).\n",
++			      (out->data_size == 0));
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -670,9 +670,6 @@ int utool_pkt_operation_have_port(struct utool_dev *dev, struct utool_cmd_param
+ 	}
+ 
+ 	ret = utool_pkt_operation(dev, pkt_in, pkt_in_len, pkt_exec);
+-	if (ret != UTOOL_OK) {
+-		utool_err_msg("Failed to execute command, ret = %d.\n", ret);
+-	}
+ 
+ 	utool_destroy_pkt_in(&pkt_in);
+ 	return ret;
+diff --git a/u_utool_port_info.c b/u_utool_port_info.c
+index 600d76e..822e293 100644
+--- a/u_utool_port_info.c
++++ b/u_utool_port_info.c
+@@ -220,6 +220,8 @@ struct utool_port_dlphy_info {
+ 	uint32_t dl_link_fsm;
+ 	uint32_t fec_err_high;
+ 	uint16_t port_cna;
++	uint16_t sds_lpbk_en_bitmap;
++	uint32_t clock_freq;
+ };
+ 
+ union utool_port_info {
+@@ -545,6 +547,22 @@ static void utool_print_eth_lane_num_info(uint8_t cur_lane_num, const char *str)
+ 			 UTOOL_ARRAY_SIZE(utool_lane_num_table), "NA");
+ }
+ 
++static void utool_print_eth_lpbk_en(struct utool_port_dlphy_info *dlphy)
++{
++	const char *lpbk_en_lane_names[] = {
++		"sds_lpbk_en_lane0", "sds_lpbk_en_lane1",
++		"sds_lpbk_en_lane2", "sds_lpbk_en_lane3"
++	};
++	uint8_t lane_num;
++	uint8_t i;
++
++	lane_num = (dlphy->port_mode) ? UTOOL_MAC_LANES_X2 : UTOOL_MAC_LANES_X4;
++
++	for (i = 0; i < lane_num; i++) {
++		utool_print_two_type_info(lpbk_en_lane_names[i], (dlphy->sds_lpbk_en_bitmap >> i) & 0x1, "on", "off");
++	}
++}
++
+ static int utool_ub_port_info_parse_link_info(struct fwctl_rpc_ub_out *port_info_out)
+ {
+ 	struct utool_port_data *port_info_out_data = (struct utool_port_data *)(port_info_out->data);
+@@ -590,6 +608,7 @@ static int utool_ub_port_info_parse_dlphy_info(struct fwctl_rpc_ub_out *port_inf
+ 	utool_print_port_id(port_info_out_data->head.port_id);
+ 	utool_reg_msg("\n======================== UB DLPHY INFO ==========================\n");
+ 	utool_reg_msg("port_cna: 0x%x\n", dlphy_info.port_cna);
++	utool_reg_msg("clock_freq: 0x%x\n", dlphy_info.clock_freq);
+ 	utool_print_enum("fec", (uint32_t)dlphy_info.fec, utool_dlphy_fec_table,
+ 			 UTOOL_ARRAY_SIZE(utool_dlphy_fec_table), "NA");
+ 	utool_print_two_type_info("phy_mode_ctrl", dlphy_info.phy_mode_ctrl, "Mode2", "Mode1");
+@@ -649,6 +668,7 @@ static int utool_eth_port_info_parse_dlphy_info(struct fwctl_rpc_ub_out *port_in
+ 
+ 	utool_print_port_id(port_info_out_data->head.port_id);
+ 	utool_reg_msg("\n======================== ETH DLPHY INFO ==========================\n");
++	utool_reg_msg("clock_freq: 0x%x\n", dlphy_info.clock_freq);
+ 	utool_print_eth_dlphy_fec_info(dlphy_info.fec);
+ 	utool_print_eth_dlphy_mode_info(dlphy_info.phy_mode_ctrl);
+ 	utool_print_eth_sds_rate(dlphy_info.sds_rate);
+@@ -656,6 +676,7 @@ static int utool_eth_port_info_parse_dlphy_info(struct fwctl_rpc_ub_out *port_in
+ 	utool_print_eth_lane_num_info(dlphy_info.cur_tx_lane_num, "cur_rx_lane_num");
+ 	utool_print_two_type_info("port_en", dlphy_info.port_en, "enable", "disable");
+ 	utool_print_two_type_info("port_mode", dlphy_info.port_mode, "X2 2port", "X4 1port");
++	utool_print_eth_lpbk_en(&dlphy_info);
+ 	utool_print_two_type_info("phy_link", dlphy_info.phy_link, "link", "no link");
+ 	utool_reg_msg("mac lstm: 0x%x\n", dlphy_info.mac_lstm);
+ 	utool_reg_msg("decoded_fail_block_num: 0x%x\n", dlphy_info.decoded_fail_block_num);
+diff --git a/u_utool_tp.c b/u_utool_tp.c
+index 73fe5ce..eeccc3d 100644
+--- a/u_utool_tp.c
++++ b/u_utool_tp.c
+@@ -84,7 +84,7 @@ static struct utool_cal_reg_table_dp *utool_tp_get_cal_reg_table(void)
+ 	route_result_field_info = utool_tp_get_field_info_by_name(TP_TX_ROUTE_FIELD_INFO);
+ 	rx_bank_field_info = utool_tp_get_field_info_by_name(TP_RX_BANK_FIELD_INFO);
+ 
+-	if ((pkt_stats_field_info == NULL) || abn_stats_field_info == NULL || (route_result_field_info == NULL) ||
++	if ((pkt_stats_field_info == NULL) || (abn_stats_field_info == NULL) || (route_result_field_info == NULL) ||
+ 	    (rx_bank_field_info == NULL)) {
+ 		utool_err_msg("Failed to get field info.\n");
+ 		return NULL;
+@@ -626,7 +626,6 @@ static int utool_handle_matched_func(struct utool_dev *dev, struct utool_cmd_par
+ 	func_pkt_exec.rpc_cmd = func_entry->rpc_cmd;
+ 	func_pkt_exec.execute = func_entry->execute;
+ 
+-	tp_cal_reg_param->data_len = &func_pkt_exec.data_len;
+ 	tp_cal_reg_param->user_def_data_len = func_entry->data_len;
+ 
+ 	ret = utool_cal_func_reg_len(param->func, tp_cal_reg_param);
+@@ -635,6 +634,7 @@ static int utool_handle_matched_func(struct utool_dev *dev, struct utool_cmd_par
+ 		return ret;
+ 	}
+ 
++	func_pkt_exec.data_len = *tp_cal_reg_param->data_len;
+ 	if (func_entry->create_pkt_in == NULL) {
+ 		utool_err_msg("Failed to create tp func pkt in. Callback is NULL.\n");
+ 		return UTOOL_ERR_INVALID_PARAM;
+@@ -667,6 +667,7 @@ static int utool_tp_cmd_func(struct utool_dev *dev, struct utool_cmd_param *para
+ {
+ 	struct utool_cal_reg_table_dp *cal_reg_table_dp = utool_tp_get_cal_reg_table();
+ 	struct utool_cal_reg_func_param tp_cal_reg_param = {};
++	uint32_t data_len = 0;
+ 	uint32_t i;
+ 
+ 	if (cal_reg_table_dp == NULL) {
+@@ -676,6 +677,7 @@ static int utool_tp_cmd_func(struct utool_dev *dev, struct utool_cmd_param *para
+ 
+ 	tp_cal_reg_param.utool_cal_reg_table = cal_reg_table_dp->reg_table;
+ 	tp_cal_reg_param.func_cnt = cal_reg_table_dp->func_cnt;
++	tp_cal_reg_param.data_len = &data_len;
+ 
+ 	for (i = 0; i < func_cnt; i++) {
+ 		if (strcmp(param->func, func_table[i].func) == 0) {
+-- 
+2.34.1
+
