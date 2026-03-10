@@ -1,14 +1,17 @@
 Summary: Implementation of ubctl
 Name: ubctl
 Version: 1.0.2
-Release: 0
+Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}.tar.gz
 
+Patch1 :0001-ub-ubctl-Modify-the-incorrect-printing-of-register-n.patch
+
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
 BuildRequires:  make
+ExclusiveArch:  aarch64
 
 BuildRoot:      %{name}-%{version}-%{release}
 
@@ -32,6 +35,7 @@ the query results, it parses and prints the expected results.
 
 %prep
 %setup -q -n ubctl
+%autopatch -p1
 
 # %build
 # mkdir ubctl/build
@@ -69,7 +73,7 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
-* Sat Jan 31 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.2-0
+* Tue Mar 10 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.2-1
 - Modify the incorrect printing of register names in ubctl.
 
 * Wed Dec 10 2025 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.1-0
