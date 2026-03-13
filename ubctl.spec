@@ -1,7 +1,7 @@
 Summary: Implementation of ubctl
 Name: ubctl
 Version: 1.0.3
-Release: 2
+Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}.tar.gz
@@ -55,14 +55,14 @@ mkdir -p %{buildroot}
 mkdir -p %{buildroot}%{_docdir}/ub/%{name}/
 mkdir -p %{buildroot}%{_mandir}/man8/
 pod2man doc/ubctl.pod ./ubctl.8
-install -m 640 README.md %{buildroot}%{_docdir}/ub/%{name}/
-install -m 640 ./ubctl.8 %{buildroot}%{_mandir}/man8/ubctl.8
+install -m 644 README.md %{buildroot}%{_docdir}/ub/%{name}/
+install -m 644 ./ubctl.8 %{buildroot}%{_mandir}/man8/ubctl.8
 gzip -f9n %{buildroot}%{_mandir}/man8/ubctl.8
 
 DESTDIR=%{buildroot} cmake --install build
 
 %files
-%attr(0550, root, root) %{_bindir}/ubctl
+%{_bindir}/ubctl
 %doc %{_docdir}/ub/%{name}/*
 %{_mandir}/man8/ubctl.8.gz
 
@@ -70,9 +70,6 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
-* Fri Mar 13 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-2
-- Modify file permissions
-
 * Wed Mar 4 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-1
 - Incorporate minor optimizations for various scenarios
 
