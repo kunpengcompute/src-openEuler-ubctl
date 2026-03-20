@@ -1,7 +1,7 @@
 Summary: Implementation of ubctl
 Name: ubctl
 Version: 1.0.3
-Release: 1
+Release: 2
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}.tar.gz
@@ -13,6 +13,7 @@ Patch4: 0004-ub-ubctl-Support-querying-real-time-bandwidth-statis.patch
 Patch5: 0005-ub-ubctl-Support-querying-firmware-version-numbers.patch
 Patch6: 0006-ub-ubctl-Support-querying-the-historical-status-of-p.patch
 Patch7: 0007-ub-ubctl-Incorporate-minor-optimizations-for-various.patch
+Patch8: 0008-ub-ubctl-Modify-the-statistical-port-link-up-down-to.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -79,6 +80,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Fri Mar 20 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-2
+- Modify the statistical port link up/down to only count 10 times
+
 * Tue Mar 10 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-1
 - Adds support for query some functions
 
