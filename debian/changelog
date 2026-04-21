@@ -1,0 +1,35 @@
+ubctl (1.0.3-2) unstable; urgency=medium
+
+  * Modify the statistical port link up/down to only count 10 times
+
+ -- Jiaqi Cheng <chengjiaqi3@huawei.com>  Fri, 20 Mar 2026 00:00:00 +0800
+
+ubctl (1.0.3-1) unstable; urgency=medium
+
+  * Adds support for query some functions
+
+ -- Jiaqi Cheng <chengjiaqi3@huawei.com>  Tue, 10 Mar 2026 00:00:00 +0800
+
+ubctl (1.0.2-1) unstable; urgency=medium
+
+  * Modify the incorrect printing of register names in ubctl.
+
+ -- Jiaqi Cheng <chengjiaqi3@huawei.com>  Tue, 10 Mar 2026 00:00:00 +0800
+
+ubctl (1.0.1-0) unstable; urgency=medium
+
+  * Modify TP/TA/SCC register query process.
+
+ -- Jiaqi Cheng <chengjiaqi3@huawei.com>  Wed, 10 Dec 2025 00:00:00 +0800
+
+ubctl (1.0.0-2) unstable; urgency=medium
+
+  * Modify the core dump issue that occurred during the query
+
+ -- Jiaqi Cheng <chengjiaqi3@huawei.com>  Fri, 14 Nov 2025 00:00:00 +0800
+
+ubctl (1.0.0-1) unstable; urgency=medium
+
+  * Add ubctl tool to query desired information
+
+ -- Jiaqi Cheng <chengjiaqi3@huawei.com>  Tue, 04 Nov 2025 00:00:00 +0800
