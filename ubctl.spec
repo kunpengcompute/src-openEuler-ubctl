@@ -1,14 +1,24 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.1
-Release: 0
+Version: 1.0.3
+Release: 2
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}.tar.gz
 
+Patch1: 0001-ub-ubctl-Modify-the-incorrect-printing-of-register-n.patch
+Patch2: 0002-ub-ubctl-Supports-query-commands-and-can-retrieve-st.patch
+Patch3: 0003-ub-ubctl-Support-querying-statistical-indicators-at-.patch
+Patch4: 0004-ub-ubctl-Support-querying-real-time-bandwidth-statis.patch
+Patch5: 0005-ub-ubctl-Support-querying-firmware-version-numbers.patch
+Patch6: 0006-ub-ubctl-Support-querying-the-historical-status-of-p.patch
+Patch7: 0007-ub-ubctl-Incorporate-minor-optimizations-for-various.patch
+Patch8: 0008-ub-ubctl-Modify-the-statistical-port-link-up-down-to.patch
+
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
 BuildRequires:  make
+ExclusiveArch:  aarch64
 
 BuildRoot:      %{name}-%{version}-%{release}
 
@@ -32,6 +42,7 @@ the query results, it parses and prints the expected results.
 
 %prep
 %setup -q -n ubctl
+%autopatch -p1
 
 # %build
 # mkdir ubctl/build
@@ -69,6 +80,15 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Fri Mar 20 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-2
+- Modify the statistical port link up/down to only count 10 times
+
+* Tue Mar 10 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-1
+- Adds support for query some functions
+
+* Tue Mar 10 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.2-1
+- Modify the incorrect printing of register names in ubctl.
+
 * Wed Dec 10 2025 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.1-0
 - Modify TP/TA/SCC register query process.
 
