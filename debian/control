@@ -1,0 +1,23 @@
+Source: ubctl
+Section: utils
+Priority: optional
+Maintainer: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Build-Depends: debhelper-compat (= 13), cmake, g++
+Standards-Version: 4.6.2
+Homepage: https://gitee.com/openeuler/ubctl
+
+Package: ubctl
+Architecture: arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Implementation of ubctl
+ This implementation provides ubctl sending and reception.
+ The ubctl tool implements UB-related DFX functions by invoking the
+ ub_fwctl deriver. This tool is mainly used to parse the command line input
+ by the user and send query commands to the kernel state. After the kernel
+ state returns the query results, it parses and prints the expected results.
+
+Package: libubctl-dev
+Architecture: arm64
+Depends: ubctl (= ${binary:Version})
+Description: Implementation of ubctl(UB) - Tools and header files for developers
+ This package is required to develop alternate clients for ubctl.
