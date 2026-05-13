@@ -1,7 +1,7 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.3
-Release: 2
+Version: 1.0.4
+Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}.tar.gz
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Wed May 13 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.4-1
+- Modify the parsing policy for the speed_ability field in the port_info command. 
+
 * Thu Mar 19 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-2
 - Modify the statistical port link up/down to only count 10 times
 
