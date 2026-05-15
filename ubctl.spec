@@ -1,6 +1,6 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.5
+Version: 1.0.6
 Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Fri May 15 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.6-1
+- Add the debugfs function.
+
 * Thu May 14 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.5-1
 - Add querying the peak bandwidth.
 
