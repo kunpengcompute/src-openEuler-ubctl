@@ -1,6 +1,6 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.4
+Version: 1.0.5
 Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Thu May 14 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.5-1
+- Add querying the peak bandwidth.
+
 * Wed May 13 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.4-1
 - Modify the parsing policy for the speed_ability field in the port_info command. 
 
