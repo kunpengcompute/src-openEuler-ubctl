@@ -1,10 +1,10 @@
 Summary: Implementation of ubctl
 Name: ubctl
 Version: 1.0.6
-Release: 1
+Release: 2
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
-Source0: %{name}.tar.gz
+Source0: %{name}-%{version}.tar.gz
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -32,7 +32,7 @@ send query commands to the kernel state. After the kernel state returns
 the query results, it parses and prints the expected results.
 
 %prep
-%setup -q -n ubctl
+%setup -q -n %{name}-%{version}
 
 # %build
 # mkdir ubctl/build
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Wed May 20 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.6-2
+- Change source package name and spec file name.
+
 * Fri May 15 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.6-1
 - Add the debugfs function.
 
