@@ -1,10 +1,10 @@
 Summary: Implementation of ubctl
 Name: ubctl
 Version: 1.0.3
-Release: 2
+Release: 3
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
-Source0: %{name}.tar.gz
+Source0: %{name}-%{version}.tar.gz
 
 Patch1: 0001-ub-ubctl-Modify-the-incorrect-printing-of-register-n.patch
 Patch2: 0002-ub-ubctl-Supports-query-commands-and-can-retrieve-st.patch
@@ -41,7 +41,7 @@ send query commands to the kernel state. After the kernel state returns
 the query results, it parses and prints the expected results.
 
 %prep
-%setup -q -n ubctl
+%setup -q -n %{name}-%{version}
 %autopatch -p1
 
 # %build
@@ -80,6 +80,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Thu May 21 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-3
+- Change source package name and spec file name.
+
 * Fri Mar 20 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-2
 - Modify the statistical port link up/down to only count 10 times
 
