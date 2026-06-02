@@ -1,7 +1,7 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.6
-Release: 2
+Version: 1.0.7
+Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}-%{version}.tar.gz
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Tue Jun 2 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.7-1
+- Modify debugfs verification matching rules.
+
 * Wed May 20 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.6-2
 - Change source package name and spec file name.
 
