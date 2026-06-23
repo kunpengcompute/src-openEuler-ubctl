@@ -1,6 +1,6 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.8
+Version: 1.0.9
 Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Tue Jun 23 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.9-1
+- Add print fields to the queried port information.
+
 * Mon Jun 15 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.8-1
 - Modify TA layer to obtain WQE delay related registers.
 
