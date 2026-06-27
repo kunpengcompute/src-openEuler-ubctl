@@ -1,0 +1,196 @@
+From 3ee5b78c7b33700854237626e2eccef78c1948c6 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Tue, 23 Jun 2026 18:50:29 +0800
+Subject: [PATCH 7/8] ub:ubctl:Add print fields to the queried port
+ information.
+
+tool inclusion
+category: bugfix
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/25
+CVE: NA
+
+--------------------------------------------------------------------------
+
+Modify to retrieve environment information from kernel mode and
+determine whether to add printing for this field based on the
+environment information
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ kernel_headers/ub_fwctl.h |  2 ++
+ u_utool_common.h          |  6 +++++
+ u_utool_dump.c            |  1 +
+ u_utool_pkt.c             |  3 ++-
+ u_utool_port_info.c       | 57 ++++++++++++++++++++++++++++++++++++---
+ 5 files changed, 65 insertions(+), 4 deletions(-)
+
+diff --git a/kernel_headers/ub_fwctl.h b/kernel_headers/ub_fwctl.h
+index 33f1795..68edab4 100644
+--- a/kernel_headers/ub_fwctl.h
++++ b/kernel_headers/ub_fwctl.h
+@@ -27,11 +27,13 @@ struct fwctl_rpc_ub_in {
+ /**
+  * struct fwctl_rpc_ub_out - ioctl(FWCTL_RPC) output
+  * @retval: The value returned when querying data with an error message
++ * @env_version: Different environmental versions
+  * @data_size: Length of @data
+  * @data: data transmitted to users
+  */
+ struct fwctl_rpc_ub_out {
+ 	int retval;
++	__u32 env_version;
+ 	__u32 data_size;
+ 	__u32 data[];
+ };
+diff --git a/u_utool_common.h b/u_utool_common.h
+index fd5530b..cce9a65 100644
+--- a/u_utool_common.h
++++ b/u_utool_common.h
+@@ -20,6 +20,12 @@
+ 
+ #define UTOOL_VERSION 0
+ 
++#define UTOOL_ENV_VER_UNKNOWN (0U)
++#define UTOOL_ENV_VER_A_0 (1000U)
++#define UTOOL_ENV_VER_A_1 (1001U)
++#define UTOOL_ENV_VER_K_0 (2000U)
++#define UTOOL_ENV_VER_K_1 (2001U)
++
+ #define UBCTL_ARG_MAX_LEN 20
+ #define UBCTL_FILE_NAME_MAX_LEN 128
+ #define UTOOL_LINE_BUF_LEN 300
+diff --git a/u_utool_dump.c b/u_utool_dump.c
+index 06e79b0..fe85205 100644
+--- a/u_utool_dump.c
++++ b/u_utool_dump.c
+@@ -52,6 +52,7 @@ static void utool_dump_lydata_format(struct fwctl_rpc_ub_out *out, uint32_t offs
+ 	uint32_t *pos_index = out->data + offset / sizeof(uint32_t);
+ 
+ 	layer_out->data_size = layer_data_len;
++	layer_out->env_version = out->env_version;
+ 	memcpy(layer_out->data, pos_index, layer_data_len);
+ }
+ 
+diff --git a/u_utool_pkt.c b/u_utool_pkt.c
+index eb99473..716b2d9 100644
+--- a/u_utool_pkt.c
++++ b/u_utool_pkt.c
+@@ -238,13 +238,14 @@ int utool_module_parse(struct fwctl_rpc_ub_out *out,
+ 		return UTOOL_ERR_MALLOC;
+ 	}
+ 	func_pkt_out->retval = 0;
++	func_pkt_out->env_version = out->env_version;
+ 
+ 	for (i = 0; i < func_table_cnt; i++) {
+ 		if (!func_table[i].is_dump) {
+ 			continue;
+ 		}
+ 
+-		memset(func_pkt_out, 0x0, func_pkt_out_max_len);
++		memset(func_pkt_out->data, 0x0, out->data_size);
+ 
+ 		ret = utool_cal_func_reg_len(func_table[i].func, &cal_reg_param);
+ 		if (ret != UTOOL_OK || func_data_len == 0) {
+diff --git a/u_utool_port_info.c b/u_utool_port_info.c
+index b90c716..e85f2ab 100644
+--- a/u_utool_port_info.c
++++ b/u_utool_port_info.c
+@@ -230,6 +230,10 @@ struct utool_port_dlphy_info {
+ 	uint16_t port_cna;
+ 	uint16_t sds_lpbk_en_bitmap;
+ 	uint32_t clock_freq;
++	uint8_t opposite_valid;
++	uint8_t opposite;
++	uint8_t media_type_valid;
++	uint8_t media_type;
+ };
+ 
+ union utool_port_info {
+@@ -465,9 +469,9 @@ static void utool_print_dlphy_lstm(uint8_t mac_lstm)
+ static void utool_print_port_mode(uint8_t port_mode)
+ {
+ 	struct utool_info_item utool_port_mode_table[] = {
+-		{ UTOOL_PORT_MODE_UBC, "PORT_MODE_UBC" },
++		{ UTOOL_PORT_MODE_UBC, "PORT_MODE_EXCLUSIVE" },
+ 		{ UTOOL_PORT_MODE_SHARED, "PORT_MODE_SHARED" },
+-		{ UTOOL_PORT_MODE_UBG, "PORT_MODE_UBG" },
++		{ UTOOL_PORT_MODE_UBG, "PORT_MODE_EXCLUSIVE" },
+ 		{ UTOOL_PORT_MODE_UNUSED, "PORT_MODE_UNUSED" },
+ 	};
+ 
+@@ -587,6 +591,51 @@ static void utool_print_eth_lpbk_en(struct utool_port_dlphy_info *dlphy)
+ 	}
+ }
+ 
++static void utool_print_eth_dlphy_lstm(uint8_t mac_lstm)
++{
++#define UTOOL_MAC_LSTM_RXMAC_LINK_BIT (0x1)
++#define UTOOL_MAC_LSTM_RXPCS_LINK_BIT (0x2)
++
++	const char *rxmac_link = (mac_lstm & UTOOL_MAC_LSTM_RXMAC_LINK_BIT) ? "RXMAC_LINK_UP" : "RXMAC_LINK_DOWN";
++	const char *rxpcs_link = (mac_lstm & UTOOL_MAC_LSTM_RXPCS_LINK_BIT) ? "RXPCS_LINK_UP" : "RXPCS_LINK_DOWN";
++
++	utool_reg_msg("mac_lstm: %s, %s\n", rxmac_link, rxpcs_link);
++}
++
++static void utool_print_media_type(struct fwctl_rpc_ub_out *port_info_out)
++{
++#define MEDIA_TYPE_ELECTRIC 0
++#define MEDIA_TYPE_LPO      1
++#define MEDIA_TYPE_ODSP     2
++
++	struct utool_port_data *port_info_out_data = (struct utool_port_data *)(port_info_out->data);
++	struct utool_port_dlphy_info dlphy_info = port_info_out_data->info.dlphy_info;
++
++	if ((port_info_out->env_version != UTOOL_ENV_VER_A_0) && (port_info_out->env_version != UTOOL_ENV_VER_A_1)) {
++		return;
++	}
++
++	if (!dlphy_info.media_type_valid) {
++		utool_reg_msg("media_type: NA\n");
++		return;
++	}
++
++	switch (dlphy_info.media_type) {
++		case MEDIA_TYPE_ELECTRIC:
++			utool_reg_msg("media_type: Electrical\n");
++			break;
++		case MEDIA_TYPE_LPO:
++			utool_reg_msg("media_type: LPO Optical\n");
++			break;
++		case MEDIA_TYPE_ODSP:
++			utool_reg_msg("media_type: ODSP Optical\n");
++			break;
++		default:
++			utool_reg_msg("media_type: Unknown\n");
++			break;
++	}
++}
++
+ static int utool_ub_port_info_parse_link_info(struct fwctl_rpc_ub_out *port_info_out)
+ {
+ 	struct utool_port_data *port_info_out_data = (struct utool_port_data *)(port_info_out->data);
+@@ -658,6 +707,7 @@ static int utool_ub_port_info_parse_dlphy_info(struct fwctl_rpc_ub_out *port_inf
+ 		      ((uint64_t)dlphy_info.fec_err_high << UTOOL_FEC_ERR_HIGH_SHIFT) | dlphy_info.fec_err_low);
+ 	utool_reg_msg("retry_cnt: 0x%x\n", dlphy_info.retry_cnt);
+ 	utool_print_dl_link_fsm(dlphy_info.dl_link_fsm);
++	utool_print_media_type(port_info_out);
+ 
+ 	return UTOOL_OK;
+ }
+@@ -702,10 +752,11 @@ static int utool_eth_port_info_parse_dlphy_info(struct fwctl_rpc_ub_out *port_in
+ 	utool_print_two_type_info("port_mode", dlphy_info.port_mode, "X2 2port", "X4 1port");
+ 	utool_print_eth_lpbk_en(&dlphy_info);
+ 	utool_print_two_type_info("phy_link", dlphy_info.phy_link, "link", "no link");
+-	utool_reg_msg("mac lstm: 0x%x\n", dlphy_info.mac_lstm);
++	utool_print_eth_dlphy_lstm(dlphy_info.mac_lstm);
+ 	utool_reg_msg("decoded_fail_block_num: 0x%x\n", dlphy_info.decoded_fail_block_num);
+ 	utool_reg_msg("fec_err: 0x%llx\n",
+ 		      ((uint64_t)dlphy_info.fec_err_high << UTOOL_FEC_ERR_HIGH_SHIFT) | dlphy_info.fec_err_low);
++	utool_print_media_type(port_info_out);
+ 
+ 	return UTOOL_OK;
+ }
+-- 
+2.43.5
+
