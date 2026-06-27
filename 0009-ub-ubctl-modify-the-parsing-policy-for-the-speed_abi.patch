@@ -1,0 +1,477 @@
+From f75c93f2d6ff11ad44a9dc9083c985fe670f35e0 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Tue, 12 May 2026 15:50:25 +0800
+Subject: [PATCH 1/8] ub:ubctl:modify the parsing policy for the speed_ability
+ field in the port_info command.
+
+tool inclusion
+category: bugfix
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/18
+CVE: NA
+
+--------------------------------------------------------------------------
+
+Modify the parsing policy for the speed_ability field in the port_info command.
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ kernel_headers/ub_fwctl.h |  8 ++--
+ u_utool_dl.c              | 29 ++++++-------
+ u_utool_fw_version.c      |  8 ++--
+ u_utool_fwctl.c           |  4 ++
+ u_utool_main.c            |  4 +-
+ u_utool_pkt.c             |  6 +--
+ u_utool_port_info.c       | 88 +++++++++++++++++++++++++--------------
+ u_utool_port_pkt.c        |  2 +-
+ u_utool_qos.c             |  3 ++
+ u_utool_tp.c              |  2 +-
+ u_utool_tp_field_info.c   |  6 ++-
+ 11 files changed, 94 insertions(+), 66 deletions(-)
+
+diff --git a/kernel_headers/ub_fwctl.h b/kernel_headers/ub_fwctl.h
+index 2a6a167..de7113f 100644
+--- a/kernel_headers/ub_fwctl.h
++++ b/kernel_headers/ub_fwctl.h
+@@ -1,4 +1,4 @@
+-/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note*/
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+ /*
+  * Copyright(c) 2025 HiSilicon Technologies CO., Limited. All rights reserved.
+  */
+@@ -314,7 +314,7 @@ struct fwctl_pkt_in_table {
+ };
+ 
+ /**
+- * struct fwctl_pkt_in_enable - ioctl(FWCTL_RPC) input
++ * struct fwctl_pkt_in_port - ioctl(FWCTL_RPC) input
+  * @port_id: The value of param '-p'
+  */
+ struct fwctl_pkt_in_port {
+@@ -322,7 +322,7 @@ struct fwctl_pkt_in_port {
+ };
+ 
+ /**
+- * struct fwctl_pkt_in_enable - ioctl(FWCTL_RPC) input
++ * struct fwctl_pkt_in_index - ioctl(FWCTL_RPC) input
+  * @index: The value of param '-i'
+  */
+ struct fwctl_pkt_in_index {
+@@ -330,7 +330,7 @@ struct fwctl_pkt_in_index {
+ };
+ 
+ /**
+- * struct fwctl_pkt_in_enable - ioctl(FWCTL_RPC) input
++ * struct fwctl_pkt_in_ummuid_value - ioctl(FWCTL_RPC) input
+  * @ummu_id: The value of param '-u'
+  * @value: The value of param '-e'
+  */
+diff --git a/u_utool_dl.c b/u_utool_dl.c
+index 595c981..b3e66a3 100644
+--- a/u_utool_dl.c
++++ b/u_utool_dl.c
+@@ -859,7 +859,7 @@ static int utool_dl_trace_parse_rpc_pkt(struct fwctl_rpc_ub_out *dl_trace_out)
+ 		"LINK_IDLE", "RX_EQ", "DETECT WAIT", "DETECT CONFIRM", "DISCOVERY ACTIVE", "DISCOVERY CONFIRM",
+ 		"CONFIG ACTIVE", "CONFIG CHECK", "CONFIG CONFIRM", "SENT NULL", "LINK ACTIVE", "RETRAIN ACTIVE",
+ 		"RETRAIN CONFIRM", UTOOL_DEFAULT_FSM, "CHANGE SPEED", "RETRAIN_WAIT_AMLOCK", "EQ COARSE ACTIVE",
+-		"EQ PASSIVE","EQ ACTIVE", "LOOPBACK CONFIRM", "LOOPBACK ACTIVE", "LOOPBACK EXIT", "SEBT EEIB",
++		"EQ PASSIVE", "EQ ACTIVE", "LOOPBACK CONFIRM", "LOOPBACK ACTIVE", "LOOPBACK EXIT", "SEBT EEIB",
+ 		"CHANGE POWER", "SENT FLB", "TX LP0S ACTIVE", "RX LP0S ACTIVE", "RX LP0S WAIT SDF", "IDLE POWER",
+ 		"SUB DIACOVERY CROSSLINK", "EQ COARSE CONFIRM",
+ 	};
+@@ -933,7 +933,7 @@ static void utool_rt_bandwidth_data_print(const char *reg_name, uint64_t bandwid
+ 	int len;
+ 
+ 	if (bandwidth < KBPS_PER_MBPS) {
+-		utool_reg_msg("%s: %lu kbps\n", reg_name, bandwidth);
++		utool_reg_msg("%s: %lu Kbps\n", reg_name, bandwidth);
+ 		return;
+ 	}
+ 	integer_part = bandwidth / KBPS_PER_MBPS;
+@@ -1144,13 +1144,13 @@ static int utool_dl_bandwidth_cmd(struct utool_dev *dev, struct utool_cmd_param
+ 
+ 	ret = utool_rt_bandwidth_pkt_operation(dev, param);
+ 	if (ret != UTOOL_OK) {
+-		utool_err_msg("first query real time bandwidth failed, ret = %d.\n", ret);
++		utool_err_msg("Failed to query real time bandwidth at the first time, ret = %d.\n", ret);
+ 		goto query_err;
+ 	}
+ 	usleep(param->time * UTOOL_MS_TO_US);
+ 	ret = utool_rt_bandwidth_pkt_operation(dev, param);
+ 	if (ret != UTOOL_OK) {
+-		utool_err_msg("second query real time bandwidth failed, ret = %d.\n", ret);
++		utool_err_msg("Failed to query real time bandwidth at the second time, ret = %d.\n", ret);
+ 		goto query_err;
+ 	}
+ 	utool_rt_bandwidth_parse(param->time);
+@@ -1218,19 +1218,14 @@ int utool_dl_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param)
+ 		  utool_rt_bandwidth_parse_rpc_pkt, utool_port_create_pkt_in },
+ 	};
+ 	struct utool_cmd_dispatch utool_dl_cmd_table[] = {
+-		{
+-			UTOOL_FLAG_M | UTOOL_FLAG_P | UTOOL_FLAG_F | UTOOL_FLAG_E,
+-			utool_dl_cmd_func, utool_dl_flag_mpfe_table, UTOOL_ARRAY_SIZE(utool_dl_flag_mpfe_table)
+-		}, {
+-			UTOOL_FLAG_M | UTOOL_FLAG_P | UTOOL_FLAG_F,
+-			utool_dl_cmd_func, g_utool_dl_func_table, UTOOL_ARRAY_SIZE(g_utool_dl_func_table)
+-		}, {
+-			UTOOL_FLAG_M | UTOOL_FLAG_P,
+-			utool_dl_cmd, g_utool_dl_func_table, UTOOL_ARRAY_SIZE(g_utool_dl_func_table)
+-		}, {
+-			UTOOL_FLAG_M | UTOOL_FLAG_P | UTOOL_FLAG_F | UTOOL_FLAG_T,
+-			utool_dl_bandwidth_cmd, utool_dl_port_perf_table, UTOOL_ARRAY_SIZE(utool_dl_port_perf_table)
+-		}
++		{ UTOOL_FLAG_M | UTOOL_FLAG_P | UTOOL_FLAG_F | UTOOL_FLAG_E,
++		  utool_dl_cmd_func, utool_dl_flag_mpfe_table, UTOOL_ARRAY_SIZE(utool_dl_flag_mpfe_table) },
++		{ UTOOL_FLAG_M | UTOOL_FLAG_P | UTOOL_FLAG_F,
++		  utool_dl_cmd_func, g_utool_dl_func_table, UTOOL_ARRAY_SIZE(g_utool_dl_func_table) },
++		{ UTOOL_FLAG_M | UTOOL_FLAG_P,
++		  utool_dl_cmd, g_utool_dl_func_table, UTOOL_ARRAY_SIZE(g_utool_dl_func_table) },
++		{ UTOOL_FLAG_M | UTOOL_FLAG_P | UTOOL_FLAG_F | UTOOL_FLAG_T,
++		  utool_dl_bandwidth_cmd, utool_dl_port_perf_table, UTOOL_ARRAY_SIZE(utool_dl_port_perf_table) }
+ 	};
+ 
+ 	uint32_t table_cnt = UTOOL_ARRAY_SIZE(utool_dl_cmd_table);
+diff --git a/u_utool_fw_version.c b/u_utool_fw_version.c
+index 46798b3..efae6d1 100644
+--- a/u_utool_fw_version.c
++++ b/u_utool_fw_version.c
+@@ -86,10 +86,10 @@ int utool_fw_version_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param
+ 
+ 	for (i = 0; i < cmd_fw_version_cnt; i++) {
+ 		if (param->flags == utool_cmd_fw_version_table[i].flags) {
+-		if (utool_cmd_fw_version_table[i].execute == NULL) {
+-			utool_err_msg("Failed to dispatch firmware version, execute is NULL.\n");
+-			return UTOOL_ERR_INVALID_PARAM;
+-		}
++			if (utool_cmd_fw_version_table[i].execute == NULL) {
++				utool_err_msg("Failed to dispatch firmware version, execute is NULL.\n");
++				return UTOOL_ERR_INVALID_PARAM;
++			}
+ 
+ 		return utool_cmd_fw_version_table[i].execute(dev, param,
+ 							     utool_cmd_fw_version_table[i].func_table,
+diff --git a/u_utool_fwctl.c b/u_utool_fwctl.c
+index e138b2e..d8a0fb4 100644
+--- a/u_utool_fwctl.c
++++ b/u_utool_fwctl.c
+@@ -33,6 +33,10 @@ int utool_cmd_exec(struct utool_dev *dev, struct fwctl_rpc_ub_in *in, uint32_t i
+ 
+ 	ret = ioctl(dev->fd, FWCTL_RPC, &rpc);
+ 	if (ret != 0) {
++		if (errno == ENOTTY) {
++			utool_err_msg("The cmd is not supported at current env type.\n");
++			return UTOOL_ERR_IOCTL;
++		}
+ 		utool_err_msg("Failed to interaction with the kernel, ret = %d, errno = %d.\n", ret, errno);
+ 		return UTOOL_ERR_IOCTL;
+ 	}
+diff --git a/u_utool_main.c b/u_utool_main.c
+index 767b6ec..e50bec8 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -136,7 +136,7 @@ static int utool_check_ubase_device(char *file_path, char *dev_name)
+ 
+ 		tmp_con = strtok(con, "\n");
+ 		if ((strcmp(token, UTOOL_DRIVER_STR) == 0) &&
+-			(strcmp(tmp_con, UTOOL_UBASE_DRIVER) != 0)) {
++		    (strcmp(tmp_con, UTOOL_UBASE_DRIVER) != 0)) {
+ 			utool_warn_msg("Device is not ubase device, type = %s.\n", tmp_con);
+ 			(void)fclose(fp);
+ 			return UTOOL_ERR;
+@@ -406,7 +406,7 @@ static int utool_main_parse_sub(int argc, char **argv, struct utool_dev *dev)
+ 		}
+ 
+ 		if ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0) ||
+-			(strcmp(argv[1], "help") == 0) || (strcmp(argv[1], "-help") == 0)) {
++		    (strcmp(argv[1], "help") == 0) || (strcmp(argv[1], "-help") == 0)) {
+ 			ret = UTOOL_ERR_HELP;
+ 			break;
+ 		}
+diff --git a/u_utool_pkt.c b/u_utool_pkt.c
+index 3d831d4..e759ea4 100644
+--- a/u_utool_pkt.c
++++ b/u_utool_pkt.c
+@@ -65,7 +65,7 @@ static int utool_parse_param_check(struct fwctl_rpc_ub_out *out, struct utool_fi
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+-	if ((out->data_size == 0)) {
++	if (out->data_size == 0) {
+ 		utool_err_msg("Failed to parse pkt, param is invalid data_size==0(%d).\n",
+ 			      (out->data_size == 0));
+ 		return UTOOL_ERR_INVALID_PARAM;
+@@ -201,7 +201,7 @@ static int utool_module_parse_input_check(struct fwctl_rpc_ub_out *out,
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+-	if ((out->data_size == 0)) {
++	if (out->data_size == 0) {
+ 		utool_err_msg("Failed to split module, param is invalid data_size==0(%d).\n",
+ 			      (out->data_size == 0));
+ 		return UTOOL_ERR_INVALID_PARAM;
+@@ -446,7 +446,7 @@ int utool_pkt_operation(struct utool_dev *dev, void *pkt_in, uint32_t pkt_in_len
+ 		}
+ 
+ 		if ((pkt_out->data_size != pkt_exec->data_len) &&
+-			(pkt_exec->rpc_cmd != UTOOL_CMD_QUERY_IO_DIE_PORT_INFO)) {
++		    (pkt_exec->rpc_cmd != UTOOL_CMD_QUERY_IO_DIE_PORT_INFO)) {
+ 			utool_err_msg("Failed to get pkt_out data, datasize is err, pkt out data_size = %u, data len = %u.\n",
+ 				      pkt_out->data_size, pkt_exec->data_len);
+ 			ret = UTOOL_ERR;
+diff --git a/u_utool_port_info.c b/u_utool_port_info.c
+index 822e293..b90c716 100644
+--- a/u_utool_port_info.c
++++ b/u_utool_port_info.c
+@@ -46,10 +46,17 @@ enum {
+ };
+ 
+ enum {
+-	UTOOL_SPEED_ABILITY_100GBPS = 1,
+-	UTOOL_SPEED_ABILITY_200GBPS = 2,
+-	UTOOL_SPEED_ABILITY_400GBPS = 4,
+-	UTOOL_SPEED_ABILITY_800GBPS = 8,
++	UTOOL_SPEED_ABILITY_200G_X2 = UTOOL_BIT(0),
++	UTOOL_SPEED_ABILITY_200G_X4 = UTOOL_BIT(1),
++	UTOOL_SPEED_ABILITY_400G_X4 = UTOOL_BIT(2),
++	UTOOL_SPEED_ABILITY_400G_X8 = UTOOL_BIT(3),
++	UTOOL_SPEED_ABILITY_25G_X1  = UTOOL_BIT(4),
++	UTOOL_SPEED_ABILITY_50G_X1  = UTOOL_BIT(5),
++	UTOOL_SPEED_ABILITY_50G_X2  = UTOOL_BIT(6),
++	UTOOL_SPEED_ABILITY_100G_X1 = UTOOL_BIT(7),
++	UTOOL_SPEED_ABILITY_100G_X2 = UTOOL_BIT(8),
++	UTOOL_SPEED_ABILITY_100G_X4 = UTOOL_BIT(9),
++	UTOOL_SPEED_ABILITY_10G_X1  = UTOOL_BIT(10),
+ };
+ 
+ enum {
+@@ -183,7 +190,7 @@ struct utool_mac_dfx_link_state {
+ 
+ struct utool_port_link_info {
+ 	uint8_t target_speed;
+-	uint8_t speed_ability;
++	uint8_t speed_ability_old;
+ 	uint8_t lane_num;
+ 	uint8_t fec;
+ 	uint8_t sds_rate;
+@@ -195,6 +202,7 @@ struct utool_port_link_info {
+ 	uint8_t port_mode;
+ 	uint32_t link_down_err;
+ 	struct utool_mac_dfx_link_state mac_link_state;
++	uint32_t speed_ability;
+ };
+ 
+ struct utool_port_dlphy_info {
+@@ -232,7 +240,6 @@ union utool_port_info {
+ struct utool_port_data {
+ 	struct utool_port_head head;
+ 	union utool_port_info info;
+-	uint32_t reserved;
+ };
+ 
+ struct utool_info_item {
+@@ -293,19 +300,32 @@ static inline void utool_print_two_type_info(const char *label, uint8_t val,
+ 	utool_reg_msg("%s: %s\n", label, str);
+ }
+ 
+-static void utool_print_speed_ability(uint8_t speed_ability)
++static void utool_print_speed_ability(struct utool_port_link_info *link_info)
+ {
+ 	struct utool_info_item utool_speed_ability_table[] = {
+-		{ UTOOL_SPEED_ABILITY_100GBPS, "100Gbps" },
+-		{ UTOOL_SPEED_ABILITY_200GBPS, "200Gbps" },
+-		{ UTOOL_SPEED_ABILITY_400GBPS, "400Gbps" },
+-		{ UTOOL_SPEED_ABILITY_800GBPS, "800Gbps" },
++		{ UTOOL_SPEED_ABILITY_200G_X2, "200Gbps" },
++		{ UTOOL_SPEED_ABILITY_200G_X4, "200Gbps" },
++		{ UTOOL_SPEED_ABILITY_400G_X4, "400Gbps" },
++		{ UTOOL_SPEED_ABILITY_400G_X8, "400Gbps" },
++		{ UTOOL_SPEED_ABILITY_25G_X1, "25Gbps" },
++		{ UTOOL_SPEED_ABILITY_50G_X1, "50Gbps" },
++		{ UTOOL_SPEED_ABILITY_50G_X2, "50Gbps" },
++		{ UTOOL_SPEED_ABILITY_100G_X1, "100Gbps" },
++		{ UTOOL_SPEED_ABILITY_100G_X2, "100Gbps" },
++		{ UTOOL_SPEED_ABILITY_100G_X4, "100Gbps" },
++		{ UTOOL_SPEED_ABILITY_10G_X1, "10Gbps" },
+ 	};
+ 	uint32_t speed_ability_cnt = UTOOL_ARRAY_SIZE(utool_speed_ability_table);
+ 	bool have_printed = false;
++	uint32_t speed_ability;
+ 	uint32_t i;
+ 
+-	utool_reg_msg("speed ability: ");
++	if (link_info->speed_ability != 0) {
++		speed_ability = link_info->speed_ability;
++	} else {
++		speed_ability = (uint32_t)link_info->speed_ability_old;
++	}
++	utool_reg_msg("speed_ability: ");
+ 	for (i = 0; i < speed_ability_cnt; i++) {
+ 		if ((utool_speed_ability_table[i].key & speed_ability) != 0) {
+ 			if (have_printed) {
+@@ -316,6 +336,9 @@ static void utool_print_speed_ability(uint8_t speed_ability)
+ 			utool_reg_msg("%s", utool_speed_ability_table[i].name);
+ 		}
+ 	}
++	if (!have_printed) {
++		utool_reg_msg("NA");
++	}
+ 	utool_reg_msg("\n");
+ }
+ 
+@@ -531,16 +554,17 @@ static void utool_print_eth_dlphy_mode_info(uint8_t phy_mode_ctrl)
+ 		{ UTOOL_ENHANCE_ETH_MODE, "Enhance Ethernet Mode" },
+ 	};
+ 
+-	utool_print_enum("phy mode ctrl", (uint32_t)phy_mode_ctrl, utool_eth_dlphy_mode_table,
++	utool_print_enum("phy_mode_ctrl", (uint32_t)phy_mode_ctrl, utool_eth_dlphy_mode_table,
+ 			 UTOOL_ARRAY_SIZE(utool_eth_dlphy_mode_table), "NA");
+ }
+ 
+ static void utool_print_eth_lane_num_info(uint8_t cur_lane_num, const char *str)
+ {
+ 	struct utool_info_item utool_lane_num_table[] = {
+-		{ UTOOL_MAC_LANES_X1, "LANE_NUM_X1" },
+-		{ UTOOL_MAC_LANES_X2, "LANE_NUM_X2" },
+-		{ UTOOL_MAC_LANES_X4, "LANE_NUM_X4" },
++		{ UTOOL_MAC_LANES_NOT_SET, "unset" },
++		{ UTOOL_MAC_LANES_X1, "X1" },
++		{ UTOOL_MAC_LANES_X2, "X2" },
++		{ UTOOL_MAC_LANES_X4, "X4" },
+ 	};
+ 
+ 	utool_print_enum(str, (uint32_t)cur_lane_num, utool_lane_num_table,
+@@ -572,19 +596,19 @@ static int utool_ub_port_info_parse_link_info(struct fwctl_rpc_ub_out *port_info
+ 	utool_print_port_id(port_info_out_data->head.port_id);
+ 	utool_reg_msg("\n======================= UB PORT LINK INFO =======================\n");
+ 	utool_print_target_speed(link_info.target_speed);
+-	utool_print_speed_ability(link_info.speed_ability);
+-	utool_print_enum("lane num", (uint32_t)link_info.lane_num, g_utool_lanes_table,
++	utool_print_speed_ability(&link_info);
++	utool_print_enum("lane_num", (uint32_t)link_info.lane_num, g_utool_lanes_table,
+ 			 UTOOL_ARRAY_SIZE(g_utool_lanes_table), "NA");
+ 	utool_print_enum("fec", (uint32_t)link_info.fec, g_utool_fec_table, UTOOL_ARRAY_SIZE(g_utool_fec_table), "NA");
+ 	utool_print_sds_rate(link_info.sds_rate);
+-	utool_print_two_type_info("port usage", link_info.port_usage, "used", "unused");
+-	utool_print_two_type_info("port enable", link_info.port_enable, "on", "off");
+-	utool_print_two_type_info("port link", link_info.port_link, "link", "no link");
++	utool_print_two_type_info("port_usage", link_info.port_usage, "used", "unused");
++	utool_print_two_type_info("port_enable", link_info.port_enable, "on", "off");
++	utool_print_two_type_info("port_link", link_info.port_link, "link", "no link");
+ 	utool_print_two_type_info("driver_type", link_info.driver_type, "NA", "TYPE_NONE");
+ 	utool_print_port_mode(link_info.port_mode);
+-	utool_reg_msg("link down err: 0x%x\n", link_info.link_down_err);
++	utool_reg_msg("link_down_err: 0x%x\n", link_info.link_down_err);
+ 
+-	utool_reg_msg("link state: 0x%04x ", link_info.mac_link_state.cur_state);
++	utool_reg_msg("link_state: 0x%04x ", link_info.mac_link_state.cur_state);
+ 	for (i = 0; i < UTOOL_ARRAY_SIZE(link_info.mac_link_state.err_state); i++) {
+ 		utool_reg_msg("0x%04x ", link_info.mac_link_state.err_state[i]);
+ 	}
+@@ -646,17 +670,17 @@ static int utool_eth_port_info_parse_link_info(struct fwctl_rpc_ub_out *port_inf
+ 	utool_print_port_id(port_info_out_data->head.port_id);
+ 	utool_reg_msg("\n======================= ETH PORT LINK INFO =======================\n");
+ 	utool_print_target_speed(link_info.target_speed);
+-	utool_print_speed_ability(link_info.speed_ability);
+-	utool_print_enum("lane num", (uint32_t)link_info.lane_num, g_utool_lanes_table,
++	utool_print_speed_ability(&link_info);
++	utool_print_enum("lane_num", (uint32_t)link_info.lane_num, g_utool_lanes_table,
+ 			 UTOOL_ARRAY_SIZE(g_utool_lanes_table), "NA");
+ 	utool_print_enum("fec", (uint32_t)link_info.fec, g_utool_fec_table, UTOOL_ARRAY_SIZE(g_utool_fec_table), "NA");
+ 	utool_print_eth_sds_rate(link_info.sds_rate);
+-	utool_print_two_type_info("port usage", link_info.port_usage, "used", "unused");
+-	utool_print_two_type_info("port enable", link_info.port_enable, "on", "off");
+-	utool_print_two_type_info("port link", link_info.port_link, "link", "no link");
++	utool_print_two_type_info("port_usage", link_info.port_usage, "used", "unused");
++	utool_print_two_type_info("port_enable", link_info.port_enable, "on", "off");
++	utool_print_two_type_info("port_link", link_info.port_link, "link", "no link");
+ 	utool_print_two_type_info("driver_type", link_info.driver_type, "NA", "TYPE_NONE");
+ 	utool_print_port_mode(link_info.port_mode);
+-	utool_print_two_type_info("link down err", link_info.link_down_err, "NA", "LINK_DOWN_ERR_UNKNOW");
++	utool_print_two_type_info("link_down_err", link_info.link_down_err, "NA", "LINK_DOWN_ERR_UNKNOW");
+ 
+ 	return UTOOL_OK;
+ }
+@@ -695,7 +719,7 @@ static int utool_port_info_parse_modules(struct fwctl_rpc_ub_out *port_info_out)
+ 	return UTOOL_OK;
+ }
+ 
+-static int utool_port_info_cmd_get_mudules(struct utool_dev *dev, struct utool_cmd_param *param)
++static int utool_port_info_cmd_get_modules(struct utool_dev *dev, struct utool_cmd_param *param)
+ {
+ 	struct utool_pkt_exec pkt_exec = {UTOOL_CMD_QUERY_PORT_INFO, 0, NULL};
+ 	struct fwctl_pkt_in_port_info *pkt_in = NULL;
+@@ -776,9 +800,9 @@ static int utool_port_info_cmd(struct utool_dev *dev, struct utool_cmd_param *pa
+ {
+ 	int ret = UTOOL_OK;
+ 
+-	ret = utool_port_info_cmd_get_mudules(dev, param);
++	ret = utool_port_info_cmd_get_modules(dev, param);
+ 	if (ret != UTOOL_OK) {
+-		utool_err_msg("Failed to get mudules, ret = %d.\n", ret);
++		utool_err_msg("Failed to get modules, ret = %d.\n", ret);
+ 		return ret;
+ 	}
+ 
+diff --git a/u_utool_port_pkt.c b/u_utool_port_pkt.c
+index 9322618..9e9a837 100644
+--- a/u_utool_port_pkt.c
++++ b/u_utool_port_pkt.c
+@@ -155,7 +155,7 @@ static int utool_port_pkt_cal_data_len(uint32_t *port_data_len)
+ 
+ static int utool_port_pkt_parse_rpc_pkt(struct fwctl_rpc_ub_out *port_out)
+ {
+-	#define UTOOL_WHETHER_UBOE_IDX 1
++#define UTOOL_WHETHER_UBOE_IDX 1
+ 
+ 	int ret = UTOOL_OK;
+ 
+diff --git a/u_utool_qos.c b/u_utool_qos.c
+index fd07ed0..6e09f2d 100644
+--- a/u_utool_qos.c
++++ b/u_utool_qos.c
+@@ -311,6 +311,9 @@ static int utool_qos_cmd(struct utool_dev *dev, struct utool_cmd_param *param,
+ 	struct utool_pkt_exec qos_pkt_exec = { UTOOL_CMD_QUERY_QOS, 0, NULL };
+ 	int ret = UTOOL_OK;
+ 
++	UTOOL_SET_USED(func_table);
++	UTOOL_SET_USED(func_cnt);
++
+ 	ret = utool_qos_cal_data_len(&qos_pkt_exec.data_len);
+ 	if (ret != UTOOL_OK) {
+ 		utool_err_msg("Failed to cal qos reg cnt.\n");
+diff --git a/u_utool_tp.c b/u_utool_tp.c
+index eeccc3d..b41dfbb 100644
+--- a/u_utool_tp.c
++++ b/u_utool_tp.c
+@@ -520,7 +520,7 @@ static int utool_scc_loop_call(struct utool_dev *dev, void *pkt_in, uint32_t pkt
+ 		ret = utool_pkt_operation(dev, ptr_pkt_in, pkt_in_len, pkt_exec);
+ 		if (ret != UTOOL_OK) {
+ 			utool_err_msg("Failed to execute %s cmd, ret = %d.\n", param->func, ret);
+-		return ret;
++			return ret;
+ 		}
+ 	}
+ 
+diff --git a/u_utool_tp_field_info.c b/u_utool_tp_field_info.c
+index f4fb601..3becce2 100644
+--- a/u_utool_tp_field_info.c
++++ b/u_utool_tp_field_info.c
+@@ -895,11 +895,13 @@ struct utool_field_info g_utool_tp_pkt_stats_field_info[] = {
+ 	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC15, UTOOL_FIELD_INDEX_START, "rxdma_head_in_pkt_ba4_cnt" },
+ 	{ false, false, UTOOL_REG_LOC24, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "rxdma_head_out_slight_ecn_pkt_cnt" },
+ 	{ false, false, UTOOL_REG_LOC16, UTOOL_REG_LOC23, UTOOL_FIELD_INDEX_START, "rxdma_head_in_slight_ecn_pkt_cnt" },
+-	{ false, false, UTOOL_REG_LOC8, UTOOL_REG_LOC15, UTOOL_FIELD_INDEX_START, "rxdma_head_out_compact_slight_ecn_pkt_cnt" },
++	{ false, false, UTOOL_REG_LOC8, UTOOL_REG_LOC15, UTOOL_FIELD_INDEX_START,
++	  "rxdma_head_out_compact_slight_ecn_pkt_cnt" },
+ 	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC7, UTOOL_FIELD_INDEX_START, "rxdma_head_in_compact_slight_ecn_pkt_cnt" },
+ 	{ false, false, UTOOL_REG_LOC24, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "rxdma_head_out_severe_ecn_pkt_cnt" },
+ 	{ false, false, UTOOL_REG_LOC16, UTOOL_REG_LOC23, UTOOL_FIELD_INDEX_START, "rxdma_head_in_severe_ecn_pkt_cnt" },
+-	{ false, false, UTOOL_REG_LOC8, UTOOL_REG_LOC15, UTOOL_FIELD_INDEX_START, "rxdma_head_out_compact_severe_ecn_pkt_cnt" },
++	{ false, false, UTOOL_REG_LOC8, UTOOL_REG_LOC15, UTOOL_FIELD_INDEX_START,
++	  "rxdma_head_out_compact_severe_ecn_pkt_cnt" },
+ 	{ false, false, UTOOL_REG_LOC0, UTOOL_REG_LOC7, UTOOL_FIELD_INDEX_START, "rxdma_head_in_compact_severe_ecn_pkt_cnt" },
+ 	{ false, false, UTOOL_REG_LOC29, UTOOL_REG_LOC31, UTOOL_FIELD_INDEX_START, "retry_max_bb_num" },
+ 	{ false, true, UTOOL_REG_LOC24, UTOOL_REG_LOC28, UTOOL_FIELD_INDEX_START, "reserved" },
+-- 
+2.43.5
+

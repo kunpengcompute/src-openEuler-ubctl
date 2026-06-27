@@ -1,7 +1,7 @@
 Summary: Implementation of ubctl
 Name: ubctl
 Version: 1.0.3
-Release: 3
+Release: 4
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}-%{version}.tar.gz
@@ -14,6 +14,14 @@ Patch5: 0005-ub-ubctl-Support-querying-firmware-version-numbers.patch
 Patch6: 0006-ub-ubctl-Support-querying-the-historical-status-of-p.patch
 Patch7: 0007-ub-ubctl-Incorporate-minor-optimizations-for-various.patch
 Patch8: 0008-ub-ubctl-Modify-the-statistical-port-link-up-down-to.patch
+Patch9: 0009-ub-ubctl-modify-the-parsing-policy-for-the-speed_abi.patch
+Patch10: 0010-ub-ubctl-Supports-the-configuration-and-query-of-pac.patch
+Patch11: 0011-ub-ubctl-add-querying-the-peak-bandwidth.patch
+Patch12: 0012-ub-ubctl-Add-the-debugfs-function.patch
+Patch13: 0013-ub-ubctl-Modify-debugfs-verification-matching-rules.patch
+Patch14: 0014-ub-ubctl-Modify-TA-layer-to-obtain-WQE-delay-related.patch
+Patch15: 0015-ub-ubctl-Add-print-fields-to-the-queried-port-inform.patch
+Patch16: 0016-ub-ubctl-Change-the-time-printing-from-UTC-time-to-u.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -80,6 +88,16 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Sat Jun 27 2026 zhao-lichang <zhaolichang@huawei.com> 1.0.3-4
+- ub:ubctl:Change the time printing from UTC time to use local time.
+- ub:ubctl:Add print fields to the queried port information.
+- ub:ubctl:Modify TA layer to obtain WQE delay related registers.
+- ub:ubctl:Modify debugfs verification matching rules.
+- ub:ubctl:Add the debugfs function.
+- ub:ubctl:add querying the peak bandwidth.
+- ub:ubctl:Supports the configuration and query of packet statistics on the UBOE interface based on the NL-layer VL.
+- ub:ubctl:modify the parsing policy for the speed_ability field in the port_info command.
+
 * Thu May 21 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.3-3
 - Change source package name and spec file name.
 
