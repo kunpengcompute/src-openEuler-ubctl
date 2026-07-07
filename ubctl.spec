@@ -1,7 +1,7 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.0.6
-Release: 2
+Version: 1.10.0
+Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
 Source0: %{name}-%{version}.tar.gz
@@ -70,6 +70,18 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Thu Jun 25 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.10.0-1
+- Change the time printing from UTC time to use local time.
+
+* Tue Jun 23 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.9-1
+- Add print fields to the queried port information.
+
+* Mon Jun 15 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.8-1
+- Modify TA layer to obtain WQE delay related registers.
+
+* Tue Jun 2 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.7-1
+- Modify debugfs verification matching rules.
+
 * Wed May 20 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.0.6-2
 - Change source package name and spec file name.
 
