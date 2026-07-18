@@ -1,0 +1,345 @@
+From 54f58f848fa2947f1716ae230433b2da4ef1d2c3 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Thu, 26 Feb 2026 20:50:16 +0800
+Subject: [PATCH 6/7] ub:ubctl:Support querying the historical status of port
+ links
+
+driver inclusion
+category: feature
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/12
+CVE: NA
+
+----------------------------------------------------------
+
+ubctl support querying the historical status of port links
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ doc/ubctl.pod             |   5 +-
+ kernel_headers/ub_fwctl.h |   5 +
+ u_utool_common.h          |   2 +
+ u_utool_dispatch.c        |   2 +
+ u_utool_main.c            |   2 +-
+ u_utool_port_link.c       | 191 ++++++++++++++++++++++++++++++++++++++
+ u_utool_port_link.h       |  19 ++++
+ 7 files changed, 224 insertions(+), 2 deletions(-)
+ create mode 100644 u_utool_port_link.c
+ create mode 100644 u_utool_port_link.h
+
+diff --git a/doc/ubctl.pod b/doc/ubctl.pod
+index 5ae8c23..818d237 100644
+--- a/doc/ubctl.pod
++++ b/doc/ubctl.pod
+@@ -78,7 +78,7 @@ $ub_ctl_id: ub ctl id, required parameter, chip id and ub ctl id  are used to fi
+ 
+ =item B<-m> ${module}
+ 
+-$module: module name, required parameter, current module include: dl, ba, ta, nl, qos, tp, msgq, dump, ummu, port_info, ubommu, ecc_2b, queue, cmdq, uboe, port_pkt_stats, fw_version.
++$module: module name, required parameter, current module include: dl, ba, ta, nl, qos, tp, msgq, dump, ummu, port_info, ubommu, ecc_2b, queue, cmdq, uboe, port_pkt_stats, fw_version, port_link.
+ 
+ =item B<-f> ${function}
+ 
+@@ -240,6 +240,9 @@ B<Query statistical indicators>:
+ B<Query firmware version>:
+  ubctl -c ${chip_id} -d ${ub_ctl_id} -m fw_version
+ 
++B<Query port link historical status>:
++ ubctl -c ${chip_id} -d ${ub_ctl_id} -m port_link -p {port_id}
++
+ =head1 COPYRIGHT
+ 
+ Copyright (c) 2025 HiSilicon Technologies Co., Ltd. All rights reserved.
+diff --git a/kernel_headers/ub_fwctl.h b/kernel_headers/ub_fwctl.h
+index 78125e5..2a6a167 100644
+--- a/kernel_headers/ub_fwctl.h
++++ b/kernel_headers/ub_fwctl.h
+@@ -277,6 +277,11 @@ enum ub_fwctl_cmdrpc_type {
+ 	 */
+ 	UTOOL_CMD_QUERY_PORT_PKT_STATS = 0x00E2,
+ 
++	/**
++	 * @UTOOL_CMD_QUERY_PORT_LINK_STATS: Query the historical status of port links
++	 */
++	UTOOL_CMD_QUERY_PORT_LINK_STATS = 0x00F1,
++
+ 	/**
+ 	 * @UTOOL_CMD_QUERY_DUMP: Dump all register data
+ 	 */
+diff --git a/u_utool_common.h b/u_utool_common.h
+index f151264..0352839 100644
+--- a/u_utool_common.h
++++ b/u_utool_common.h
+@@ -82,6 +82,7 @@ do {					\
+ #define UTOOL_MODULE_DUMP "dump"
+ #define UTOOL_MODULE_FIRMWARE_VERSION "fw_version"
+ #define UTOOL_MODULE_PORT_PKT_STATS "port_pkt_stats"
++#define UTOOL_MODULE_PORT_LINK "port_link"
+ 
+ enum utool_module_name {
+ 	UTOOL_MODULE_NAME_DL,
+@@ -99,6 +100,7 @@ enum utool_module_name {
+ 	UTOOL_MODULE_NAME_QUEUE,
+ 	UTOOL_MODULE_NAME_FIRMWARE_VERSION,
+ 	UTOOL_MODULE_NAME_PORT_PKT_STATS,
++	UTOOL_MODULE_NAME_PORT_LINK,
+ 	UTOOL_MODULE_NAME_DUMP,
+ 
+ 	UTOOL_MODULE_NAME_BUTT,
+diff --git a/u_utool_dispatch.c b/u_utool_dispatch.c
+index f4aadfc..ce60a64 100644
+--- a/u_utool_dispatch.c
++++ b/u_utool_dispatch.c
+@@ -28,6 +28,7 @@
+ #include "u_utool_dump.h"
+ #include "u_utool_error.h"
+ #include "u_utool_common.h"
++#include "u_utool_port_link.h"
+ #include "u_utool_dispatch.h"
+ 
+ static struct utool_cmd_param g_utool_cmd_param = {};
+@@ -50,6 +51,7 @@ static struct utool_module_dispatch g_utool_cmd_table[] = {
+ 	{ UTOOL_MODULE_QUEUE, UTOOL_MODULE_NAME_QUEUE, utool_queue_cmd_dispatch },
+ 	{ UTOOL_MODULE_FIRMWARE_VERSION, UTOOL_MODULE_NAME_FIRMWARE_VERSION, utool_fw_version_cmd_dispatch },
+ 	{ UTOOL_MODULE_PORT_PKT_STATS, UTOOL_MODULE_NAME_PORT_PKT_STATS, utool_port_pkt_cmd_dispatch },
++	{ UTOOL_MODULE_PORT_LINK, UTOOL_MODULE_NAME_PORT_LINK, utool_port_link_cmd_dispatch },
+ 	{ UTOOL_MODULE_DUMP, UTOOL_MODULE_NAME_DUMP, utool_dump_cmd_dispatch },
+ };
+ 
+diff --git a/u_utool_main.c b/u_utool_main.c
+index a60c579..1ad8fe0 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -33,7 +33,7 @@ static void utool_help(void)
+ 		       "  -d $ub_ctl_id : ub ctl id, chip id and ub ctl id  are used to find the valid device.\n\n"
+ 		       "  -m $module: module name, current module include: dl, nl, ta, tp, ba, qos, msgq,\n\n"
+ 		       "              ummu, port_info, ubommu, ecc_2b, queue, uboe, dump,\n\n"
+-		       "              port_pkt_stats, fw_version."
++		       "              port_pkt_stats, fw_version, port_link."
+ 		       "  -f $function: function name, different processing functions are provided for each module.\n"
+ 		       "                dl: pkt_stats, lane, link_status, bit_err, bist, bist_err, link_trace,\n"
+ 		       "                    rt_bandwidth"
+diff --git a/u_utool_port_link.c b/u_utool_port_link.c
+new file mode 100644
+index 0000000..8047da9
+--- /dev/null
++++ b/u_utool_port_link.c
+@@ -0,0 +1,191 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Copyright (c) 2025 HiSilicon Technologies Co., Ltd. All rights reserved.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
++ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
++ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
++ */
++
++#include <stdio.h>
++#include <string.h>
++
++#include "u_utool_pkt.h"
++#include "u_utool_error.h"
++#include "u_utool_port_link.h"
++
++#define UTOOL_MAX_PORT_LINK_STATUS 10U
++#define UTOOL_MAX_TIME_INFO_SIZE 64
++
++struct port_link_info {
++	long long time;
++	uint32_t link_status;
++};
++
++static int utool_time_parse(char *buf, struct tm time)
++{
++#define YEAR_BASE_NUM 1900
++
++	int ret;
++
++	const char *ubtool_weekdays[] = {
++		"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
++	};
++
++	const char *ubtool_months[] = {
++		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
++		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
++	};
++
++	memset(buf, 0, UTOOL_MAX_TIME_INFO_SIZE);
++	ret = snprintf(buf, UTOOL_MAX_TIME_INFO_SIZE, "%s %s %d %02d:%02d:%02d %d",
++		       ubtool_weekdays[time.tm_wday],
++		       ubtool_months[time.tm_mon],
++		       time.tm_mday,
++		       time.tm_hour, time.tm_min, time.tm_sec,
++		       time.tm_year + YEAR_BASE_NUM);
++	if (ret <= 0) {
++		utool_err_msg("snprintf failed, ret = %d.\n", ret);
++		return UTOOL_ERR;
++	}
++
++	return UTOOL_OK;
++}
++
++static int utool_port_link_print(struct port_link_info *data, uint32_t data_num, char *buf)
++{
++#define LINK_DOWN "LINK_DOWN"
++#define LINK_UP "LINK_UP"
++#define LINK_DOWN_FLAG 1
++
++	struct port_link_info *link_data;
++	uint32_t link_down_num = 0;
++	uint32_t link_up_num = 0;
++	time_t ker_time;
++	uint32_t i;
++	int ret;
++
++	link_data = data;
++	for (i = 0; i < data_num; i++) {
++		if (link_data->link_status == LINK_DOWN_FLAG) {
++			link_down_num++;
++		} else {
++			link_up_num++;
++		}
++		link_data++;
++	}
++	utool_reg_msg("current time        : %s\n", buf);
++	utool_reg_msg("link up count       : %u\n", link_up_num);
++	utool_reg_msg("link down count     : %u\n", link_down_num);
++	utool_reg_msg("link change records :\n");
++
++	link_data = data;
++	for (i = 0; i < data_num; i++) {
++		ker_time = (time_t)link_data->time;
++		ret = utool_time_parse(buf, *(gmtime(&ker_time)));
++		if (ret) {
++			return ret;
++		}
++		utool_reg_msg("    %s    %s\n", buf,
++			      (link_data->link_status == LINK_DOWN_FLAG ? LINK_DOWN : LINK_UP));
++		link_data++;
++	}
++
++	return UTOOL_OK;
++}
++
++int utool_port_link_parse_rpc_pkt(struct fwctl_rpc_ub_out *out)
++{
++#define UTOOL_DATA_SIZE_FLAG 0
++#define UTOOL_LINK_INFO_FLAG 1
++
++	char buf[UTOOL_MAX_TIME_INFO_SIZE];
++	struct port_link_info *data;
++	struct timespec ts;
++	int ret = UTOOL_OK;
++	uint32_t data_num;
++	struct tm time;
++
++	if ((out == NULL) || (out->data_size <
++			      (sizeof(struct port_link_info) * UTOOL_MAX_PORT_LINK_STATUS) + sizeof(uint32_t))) {
++		utool_err_msg("Param is invalid, out==null(%d), data size is too small(%d).\n",
++			      (out == NULL), out == NULL ? 0 : 1);
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	clock_gettime(CLOCK_REALTIME, &ts);
++	localtime_r(&ts.tv_sec, &time);
++	ret = utool_time_parse(buf, time);
++	if (ret) {
++		return ret;
++	}
++
++	data_num = out->data[UTOOL_DATA_SIZE_FLAG];
++	if (data_num > UTOOL_MAX_PORT_LINK_STATUS) {
++		utool_err_msg("the volume of data is excessive, data num = %u\n", data_num);
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++	data = (struct port_link_info *)(&out->data[UTOOL_LINK_INFO_FLAG]);
++
++	return utool_port_link_print(data, data_num, buf);
++}
++
++static int utool_port_link_cmd(struct utool_dev *dev, struct utool_cmd_param *param,
++			       struct utool_func_dispatch *func_table, uint32_t func_cnt)
++{
++	struct utool_pkt_exec port_link_pkt_exec = { UTOOL_CMD_QUERY_PORT_LINK_STATS, 0, utool_port_link_parse_rpc_pkt };
++	uint32_t pkt_in_len = 0;
++	void *pkt_in = NULL;
++	int ret = UTOOL_OK;
++
++	UTOOL_SET_USED(func_table);
++	UTOOL_SET_USED(func_cnt);
++
++	port_link_pkt_exec.data_len = sizeof(struct port_link_info) * UTOOL_MAX_PORT_LINK_STATUS + sizeof(uint32_t);
++
++	pkt_in = utool_port_create_pkt_in(&pkt_in_len, param);
++	if (pkt_in == NULL) {
++		utool_err_msg("Failed to create pkt in.\n");
++		return UTOOL_ERR_MALLOC;
++	}
++
++	ret = utool_pkt_operation(dev, pkt_in, pkt_in_len, &port_link_pkt_exec);
++	if (ret != UTOOL_OK) {
++		utool_err_msg("Failed to execute command, ret = %d.\n", ret);
++	}
++
++	utool_destroy_pkt_in(&pkt_in);
++
++	return ret;
++}
++
++int utool_port_link_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param)
++{
++	struct utool_cmd_dispatch utool_cmd_port_link_table[] = {
++		{ UTOOL_FLAG_M | UTOOL_FLAG_P, utool_port_link_cmd, NULL, 0 },
++	};
++	uint32_t cmd_port_link_cnt = UTOOL_ARRAY_SIZE(utool_cmd_port_link_table);
++	uint32_t i;
++
++	if ((dev == NULL) || (param == NULL)) {
++		utool_err_msg("Failed to dispatch port link, dev==NULL(%d), param==NULL(%d).\n",
++			      (dev == NULL), (param == NULL));
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	for (i = 0; i < cmd_port_link_cnt; i++) {
++		if (param->flags == utool_cmd_port_link_table[i].flags) {
++			if (utool_cmd_port_link_table[i].execute == NULL) {
++				utool_err_msg("Failed to dispatch port_link, execute is NULL.\n");
++				return UTOOL_ERR_INVALID_PARAM;
++			}
++
++		return utool_cmd_port_link_table[i].execute(dev, param,
++							    utool_cmd_port_link_table[i].func_table,
++							    utool_cmd_port_link_table[i].func_cnt);
++		}
++	}
++	utool_err_msg("The ubctl query port link status command must be in the following formats:\n"
++		      "ubctl -c ${chip_id} -d ${ub_ctl_id} -m port_link -p {port_id}\n");
++
++	return UTOOL_ERR_CMD_NOT_FOUND;
++}
+diff --git a/u_utool_port_link.h b/u_utool_port_link.h
+new file mode 100644
+index 0000000..8d9a588
+--- /dev/null
++++ b/u_utool_port_link.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * Copyright (c) 2025 HiSilicon Technologies Co., Ltd. All rights reserved.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
++ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
++ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
++ */
++
++#ifndef __U_UTOOL_PORT_LINK_H__
++#define __U_UTOOL_PORT_LINK_H__
++
++#include <time.h>
++#include "u_utool_fwctl.h"
++#include "u_utool_common.h"
++
++int utool_port_link_parse_rpc_pkt(struct fwctl_rpc_ub_out *out);
++int utool_port_link_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
++
++#endif
+-- 
+2.34.1
+
