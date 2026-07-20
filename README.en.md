@@ -1,7 +1,7 @@
 # ubctl
 
 #### Description
-{**When you're done, you can delete the content in this README and update the file with details for others getting started with your repository**}
+The UB DFX tool supports query for device capabilities, port status, resources, and statistics.
 
 #### Software Architecture
 Software architecture description
