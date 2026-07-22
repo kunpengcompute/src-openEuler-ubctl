@@ -1,6 +1,6 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.10.0
+Version: 1.10.1
 Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Wed Jul 22 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.10.1-1
+- Organize files into various folders and modify some prints.
+
 * Thu Jun 25 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.10.0-1
 - Change the time printing from UTC time to use local time.
 
