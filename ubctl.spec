@@ -1,6 +1,6 @@
 Summary: Implementation of ubctl
 Name: ubctl
-Version: 1.10.1
+Version: 1.10.2
 Release: 1
 License: MIT
 URL: https://gitee.com/openeuler/ubctl
@@ -70,6 +70,9 @@ DESTDIR=%{buildroot} cmake --install build
 rm -rf $RPM_BUILD_ROOT
 
 %changelog
+* Sat Jul 25 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.10.2-1
+- Support users to use query function in non root scenarios.
+
 * Wed Jul 22 2026 Jiaqi Cheng <chengjiaqi3@huawei.com> - 1.10.1-1
 - Organize files into various folders and modify some prints.
 
