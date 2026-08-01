@@ -1,3 +1,9 @@
+ubctl (1.0.3-3) unstable; urgency=medium
+
+  * Fix the Debian build with the dist-git source layout.
+
+ -- qiushengming <qiushengming1@huawei.com>  Sat, 01 Aug 2026 15:41:06 +0800
+
 ubctl (1.0.3-2) unstable; urgency=medium
 
   * Modify the statistical port link up/down to only count 10 times
