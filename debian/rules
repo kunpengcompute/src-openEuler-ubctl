@@ -1,56 +1,9 @@
 #!/usr/bin/make -f
 
-UPSTREAM_VERSION := $(shell dpkg-parsechangelog -S Version | cut -d- -f1)
-SOURCE_ARCHIVE := $(CURDIR)/ubctl-$(UPSTREAM_VERSION).tar.gz
-SOURCE_DIR := $(CURDIR)/build/ubctl-$(UPSTREAM_VERSION)
-CMAKE_BUILD_DIR := $(CURDIR)/build/cmake
-PATCHES := \
-    ${CURDIR}/0001-ub-ubctl-Modify-the-incorrect-printing-of-register-n.patch \
-    ${CURDIR}/0002-ub-ubctl-Supports-query-commands-and-can-retrieve-st.patch \
-    ${CURDIR}/0003-ub-ubctl-Support-querying-statistical-indicators-at-.patch \
-    ${CURDIR}/0004-ub-ubctl-Support-querying-real-time-bandwidth-statis.patch \
-    ${CURDIR}/0005-ub-ubctl-Support-querying-firmware-version-numbers.patch \
-    ${CURDIR}/0006-ub-ubctl-Support-querying-the-historical-status-of-p.patch \
-    ${CURDIR}/0007-ub-ubctl-Incorporate-minor-optimizations-for-various.patch \
-    ${CURDIR}/0008-ub-ubctl-Modify-the-statistical-port-link-up-down-to.patch \
-    ${CURDIR}/0009-ub-ubctl-modify-the-parsing-policy-for-the-speed_abi.patch \
-    ${CURDIR}/0010-ub-ubctl-Supports-the-configuration-and-query-of-pac.patch \
-    ${CURDIR}/0011-ub-ubctl-add-querying-the-peak-bandwidth.patch \
-    ${CURDIR}/0012-ub-ubctl-Add-the-debugfs-function.patch \
-    ${CURDIR}/0013-ub-ubctl-Modify-debugfs-verification-matching-rules.patch \
-    ${CURDIR}/0014-ub-ubctl-Modify-TA-layer-to-obtain-WQE-delay-related.patch \
-    ${CURDIR}/0015-ub-ubctl-Add-print-fields-to-the-queried-port-inform.patch \
-    ${CURDIR}/0016-ub-ubctl-Change-the-time-printing-from-UTC-time-to-u.patch
-
 %:
-	dh $@
-
-override_dh_auto_clean:
-	rm -rf $(CURDIR)/build
-	dh_clean
+	dh $@ --buildsystem=cmake --builddirectory=build
 
 override_dh_auto_configure:
-	test -f $(SOURCE_ARCHIVE)
-	mkdir -p $(CURDIR)/build
-	tar -xzf $(SOURCE_ARCHIVE) -C $(CURDIR)/build
-	set -e; cd $(SOURCE_DIR); \
-	for patch in $(PATCHES); do \
-		echo "Applying $${patch##*/}"; \
-		patch -p1 < "$$patch"; \
-	done
-	dh_auto_configure --buildsystem=cmake --sourcedirectory=$(SOURCE_DIR) \
-		--builddirectory=$(CMAKE_BUILD_DIR) -- \
+	dh_auto_configure --buildsystem=cmake --builddirectory=build -- \
 		-DCMAKE_INSTALL_PREFIX=/usr \
 		-DCMAKE_BUILD_TYPE=Release
-
-override_dh_auto_build:
-	dh_auto_build --buildsystem=cmake --builddirectory=$(CMAKE_BUILD_DIR) -- \
-		-j$(shell nproc)
-
-override_dh_auto_test:
-	:
-
-override_dh_auto_install:
-	dh_auto_install --buildsystem=cmake --sourcedirectory=$(SOURCE_DIR) \
-		--builddirectory=$(CMAKE_BUILD_DIR) \
-		--destdir=$(CURDIR)/debian/tmp
