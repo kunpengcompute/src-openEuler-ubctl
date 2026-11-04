@@ -14,3 +14,10 @@
 0014-ub-ubctl-Modify-TA-layer-to-obtain-WQE-delay-related.patch
 0015-ub-ubctl-Add-print-fields-to-the-queried-port-inform.patch
 0016-ub-ubctl-Change-the-time-printing-from-UTC-time-to-u.patch
+0017-ub-ubctl-Add-librt-link-dependency.patch
+0018-ub-ubctl-Extract-folders-and-modify-file-locations.patch
+0019-ub-ubctl-Support-users-to-use-query-function-in-non-.patch
+0020-ub-ubctl-Support-libubctl.so-to-user.patch
+0021-ub-ubctl-Enhance-the-query-information-of-ubctl.patch
+0022-ub-ubctl-Support-SDC-fault-detection-for-switching-c.patch
+0023-ub-ubctl-Provide-a-user-interface-for-ubase-query-fu.patch
