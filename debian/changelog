@@ -1,3 +1,9 @@
+ubctl (1.0.3-4) UNRELEASED; urgency=medium
+
+ * Mark changelog entries as UNRELEASED
+
+ -- qiushengming <qiushengming1@huawei.com>  Thu, 5 Nov 2026 16:20:01 +0800
+
 ubctl (1.0.3-3) UNRELEASED; urgency=medium
 
   * Fix the Debian build with the dist-git source layout.
