@@ -1,3 +1,10 @@
+ubctl (1.0.4-1) unstable; urgency=medium
+
+  * 930 snapshot (openEuler-24.03-LTS-SP3-release) packaged as deb.
+  * Version aligned with 930 spec.
+
+ -- chen_sz <chen_sz@gitcode.com>  Tue, 03 Nov 2026 19:31:37 +0800
+
 ubctl (1.0.3-3) unstable; urgency=medium
 
   * Fix the Debian build with the dist-git source layout.
