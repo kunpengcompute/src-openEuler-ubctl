@@ -1,4 +1,4 @@
-ubctl (1.0.3-5) unstable; urgency=medium
+ubctl (1.0.4-1) unstable; urgency=medium
 
   * 930 snapshot (openEuler-24.03-LTS-SP3-release) packaged as deb.
   * Version aligned with 930 spec.
