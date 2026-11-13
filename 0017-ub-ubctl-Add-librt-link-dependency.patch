@@ -1,0 +1,28 @@
+From e0fc366231177cc12c033ac88390d636ae20c62c Mon Sep 17 00:00:00 2001
+From: slim6882 <yangjunshuo@huawei.com>
+Date: Thu, 9 Jul 2026 10:55:42 +0800
+Subject: [PATCH 1/7] ub:ubctl:Add librt link dependency.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Signed-off-by: slim6882 <yangjunshuo@huawei.com>
+---
+ CMakeLists.txt | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 049deff..45a8829 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -11,6 +11,9 @@ add_executable(ubctl ${UTOOL_SRC})
+ 
+ target_link_directories(ubctl PRIVATE ${CMAKE_INSTALL_PREFIX}/lib)
+ 
++target_link_libraries(ubctl PRIVATE rt)
++
++
+ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wuninitialized -Wno-error=format -Wundef -Wunused -Wdate-time -Wfloat-equal -Wshadow -Wvla \
+     -Wdisabled-optimization -Wempty-body -Wignored-qualifiers -Wimplicit-fallthrough=3 -Wtype-limits -Wshift-negative-value -Wswitch-default \
+     -Wframe-larger-than=8192 -Wshift-overflow=2 -Wwrite-strings -Wmissing-format-attribute -Wformat-nonliteral -Wduplicated-cond -Wtrampolines \
+-- 
+2.50.1 (Apple Git-155)
+

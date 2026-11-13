@@ -1,0 +1,447 @@
+From 3c4ed60ca9d283940266cf518d6abdc9d4673b7d Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Fri, 24 Jul 2026 15:31:45 +0800
+Subject: [PATCH 3/7] ub:ubctl:Support users to use query function in non root
+ scenarios.
+
+tool inclusion
+category: feature
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/28
+CVE: NA
+
+--------------------------------------------------------------------------
+
+ubctl supports users to use query functions in non root scenarios,
+but for configuration class functions, it will perform verification
+interception
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ feature/u_utool_debugfs.c | 144 ++++++++++++++++++++++++++++++++++----
+ kernel_headers/ub_fwctl.h |  18 +++++
+ u_utool_main.c            | 118 +++++++++++--------------------
+ 3 files changed, 192 insertions(+), 88 deletions(-)
+
+diff --git a/feature/u_utool_debugfs.c b/feature/u_utool_debugfs.c
+index b3df39f..46f15ac 100644
+--- a/feature/u_utool_debugfs.c
++++ b/feature/u_utool_debugfs.c
+@@ -25,6 +25,7 @@
+ #define UBCTL_DEBUGFS_PATH_LEN 30
+ #define UBCTL_BUFFER_LEN_MAX 2048
+ #define UBCTL_MATCH_NUM 2
++#define UBCTL_UDMA_DEV_PREFIX_LEN 5
+ 
+ static bool g_utool_has_catted_file = false;
+ 
+@@ -52,6 +53,62 @@ struct utool_traverse_params {
+ 	struct list_head dir_list;
+ };
+ 
++static int utool_get_bus_num_from_udma_device(const char *device_name, char *bus_num)
++{
++	char ubcore_path[UBCTL_PATH_LEN_MAX];
++	char path[UBCTL_PATH_LEN_MAX];
++	struct dirent *entry;
++	DIR *dir;
++	int ret;
++
++	if (strncmp(device_name, "udmac", UBCTL_UDMA_DEV_PREFIX_LEN) != 0) {
++		return UTOOL_ERR;
++	}
++
++	dir = opendir("/sys/bus/ub/devices");
++	if (dir == NULL) {
++		utool_err_msg("Failed to open directory, error: %s\n", strerror(errno));
++		return UTOOL_ERR_INVALID_CMD;
++	}
++
++	while ((entry = readdir(dir)) != NULL) {
++		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
++			continue;
++		}
++
++		ret = snprintf(ubcore_path, sizeof(ubcore_path), "/sys/bus/ub/devices/%s/ubcore", entry->d_name);
++		if (ret <= 0 || (size_t)ret >= sizeof(ubcore_path)) {
++			utool_err_msg("Failed to format ubcore path, ret = %d.\n", ret);
++			goto printf_err;
++		}
++		if (access(ubcore_path, F_OK) != 0) {
++			continue;
++		}
++
++		ret = snprintf(path, sizeof(path), "/sys/bus/ub/devices/%s/ubcore/%s", entry->d_name, device_name);
++		if (ret <= 0 || (size_t)ret >= sizeof(path)) {
++			utool_err_msg("Failed to format path, ret = %d.\n", ret);
++			goto printf_err;
++		}
++		if (access(path, F_OK) != 0) {
++			continue;
++		}
++
++		ret = snprintf(bus_num, UBCTL_BUS_NUM_LEN, "%s", entry->d_name);
++		if (ret <= 0 || ret >= UBCTL_BUS_NUM_LEN) {
++			utool_err_msg("Failed to copy file name, ret = %d.\n", ret);
++			goto printf_err;
++		}
++		closedir(dir);
++		return UTOOL_OK;
++	}
++
++	utool_err_msg("Failed to get bus number from udma device %s.\n", device_name);
++printf_err:
++	closedir(dir);
++	return UTOOL_ERR;
++}
++
+ static int utool_get_bus_num_by_device_name(char *device_name, char *bus_num)
+ {
+ 	char search_file[UBCTL_PATH_LEN_MAX];
+@@ -66,6 +123,11 @@ static int utool_get_bus_num_by_device_name(char *device_name, char *bus_num)
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
++	ret = utool_get_bus_num_from_udma_device(device_name, bus_num);
++	if (ret == UTOOL_OK) {
++		return UTOOL_OK;
++	}
++
+ 	if (sscanf(device_name, "%[^0-9]%[0-9]", letters, digits) != UBCTL_MATCH_NUM) {
+ 		utool_err_msg("Failed to sscanf device name(%s)\n", device_name);
+ 		return UTOOL_ERR;
+@@ -88,15 +150,17 @@ static int utool_get_bus_num_by_device_name(char *device_name, char *bus_num)
+ 			utool_err_msg("Failed to format path, ret = %d.\n", ret);
+ 			goto printf_err;
+ 		}
+-		if (access(path, F_OK) != -1) {
+-			ret = snprintf(bus_num, UBCTL_BUS_NUM_LEN, "%s", entry->d_name);
+-			if (ret <= 0 || ret >= UBCTL_BUS_NUM_LEN) {
+-				utool_err_msg("Failed to copy file name, ret = %d.\n", ret);
+-				goto printf_err;
+-			}
+-			closedir(dir);
+-			return UTOOL_OK;
++		if (access(path, F_OK) != 0) {
++			continue;
++		}
++
++		ret = snprintf(bus_num, UBCTL_BUS_NUM_LEN, "%s", entry->d_name);
++		if (ret <= 0 || ret >= UBCTL_BUS_NUM_LEN) {
++			utool_err_msg("Failed to copy file name, ret = %d.\n", ret);
++			goto printf_err;
+ 		}
++		closedir(dir);
++		return UTOOL_OK;
+ 	}
+ 
+ 	utool_err_msg("Failed to get bus number from %s.\n", device_name);
+@@ -150,22 +214,24 @@ static int utool_get_device_info(void)
+ {
+ 	const char *commands[] = {"lsub 2>/dev/null", "/var/lsub 2>/dev/null"};
+ 	char buffer[UBCTL_BUFFER_LEN_MAX];
+-	bool success = false;
++	bool lsub_exec_success = false;
++	uint32_t i;
+ 	FILE *fp;
+ 
+-	for (size_t i = 0; i < UTOOL_ARRAY_SIZE(commands); ++i) {
++	for (i = 0; i < UTOOL_ARRAY_SIZE(commands); ++i) {
+ 		fp = popen(commands[i], "r");
+ 		if (fp == NULL) {
+ 			continue;
+ 		}
+ 		if (fgets(buffer, sizeof(buffer), fp) != NULL) {
+-			success = true;
++			lsub_exec_success = true;
+ 			break;
+ 		}
+ 		pclose(fp);
++		fp = NULL;
+ 	}
+ 
+-	if (!success) {
++	if (!lsub_exec_success) {
+ 		if (fp) {
+ 			pclose(fp);
+ 		}
+@@ -222,6 +288,55 @@ static int utool_get_port_names(void)
+ 	return UTOOL_OK;
+ }
+ 
++static int utool_get_device_name_from_ubcore(const char *ubus_num, char *device_name)
++{
++	char ubcore_path[UBCTL_CMD_LEN_MAX];
++	char buffer[UBCTL_BUFFER_LEN_MAX];
++	char cmd[UBCTL_CMD_LEN_MAX];
++	FILE *fp;
++	int ret;
++
++	ret = snprintf(ubcore_path, sizeof(ubcore_path), "/sys/bus/ub/devices/%s/ubcore", ubus_num);
++	if (ret <= 0 || (size_t)ret >= sizeof(ubcore_path)) {
++		utool_err_msg("Failed to format ubcore path, ret = %d.\n", ret);
++		return UTOOL_ERR;
++	}
++	if (access(ubcore_path, F_OK) != 0) {
++		return UTOOL_ERR;
++	}
++
++	ret = snprintf(cmd, sizeof(cmd), "ls %s | grep '^udmac' | head -n 1", ubcore_path);
++	if (ret <= 0 || (size_t)ret >= sizeof(cmd)) {
++		utool_err_msg("Failed to format ls cmd for ubcore, ret = %d.\n", ret);
++		return UTOOL_ERR;
++	}
++
++	fp = popen(cmd, "r");
++	if (fp == NULL) {
++		utool_err_msg("Failed to popen for ubcore.\n");
++		return UTOOL_ERR;
++	}
++
++	if (fgets(buffer, sizeof(buffer), fp) == NULL) {
++		pclose(fp);
++		return UTOOL_ERR;
++	}
++
++	buffer[strcspn(buffer, "\n")] = '\0';
++	if (strncmp(buffer, "udmac", UBCTL_UDMA_DEV_PREFIX_LEN) != 0) {
++		pclose(fp);
++		return UTOOL_ERR;
++	}
++	ret = snprintf(device_name, UBCTL_ARG_MAX_LEN, "%s", buffer);
++	if (ret <= 0 || ret >= UBCTL_ARG_MAX_LEN) {
++		utool_err_msg("Failed to format device name from ubcore, ret = %d.\n", ret);
++		pclose(fp);
++		return UTOOL_ERR;
++	}
++	pclose(fp);
++	return UTOOL_OK;
++}
++
+ static void utool_get_device_name_by_ubus_num(char *ubus_num, char *device_name)
+ {
+ 	char buffer[UBCTL_BUFFER_LEN_MAX];
+@@ -235,6 +350,11 @@ static void utool_get_device_name_by_ubus_num(char *ubus_num, char *device_name)
+ 		return;
+ 	}
+ 
++	ret = utool_get_device_name_from_ubcore(ubus_num, device_name);
++	if (ret == UTOOL_OK) {
++		return;
++	}
++
+ 	ret = snprintf(cmd, sizeof(cmd), "ls /sys/bus/ub/devices/%s | grep '^ubase.' | head -n 1", ubus_num);
+ 	if (ret <= 0 || ret >= UBCTL_CMD_LEN_MAX) {
+ 		utool_err_msg("Failed to format ls cmd, ret = %d.\n", ret);
+diff --git a/kernel_headers/ub_fwctl.h b/kernel_headers/ub_fwctl.h
+index 68edab4..b6db9e3 100644
+--- a/kernel_headers/ub_fwctl.h
++++ b/kernel_headers/ub_fwctl.h
+@@ -316,6 +316,11 @@ enum ub_fwctl_cmdrpc_type {
+ 	 */
+ 	UTOOL_CMD_QUERY_PORT_LINK_STATS = 0x00F1,
+ 
++	/**
++	 * @UTOOL_CMD_QUERY_DEV_INFO: Query all ubctl device info
++	 */
++	UTOOL_CMD_QUERY_DEV_INFO = 0xAAAA,
++
+ 	/**
+ 	 * @UTOOL_CMD_QUERY_DUMP: Dump all register data
+ 	 */
+@@ -391,5 +396,18 @@ struct fwctl_pkt_in_time {
+ 	__u32 time;
+ };
+ 
++/**
++ * struct fwctl_pkt_dev_info_match - ioctl(FWCTL_RPC) input/output
++ * @chip_id: The value of param '-c'
++ * @die_id: The value of param '-d'
++ * @is_matched: The result of dev info match
++ */
++struct fwctl_pkt_dev_info_match {
++	__u16 chip_id;
++	__u16 die_id;
++	__u8 is_matched;
++	__u8 reserved[3];
++};
++
+ #endif
+ 
+diff --git a/u_utool_main.c b/u_utool_main.c
+index ce12da8..860469d 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -17,6 +17,7 @@
+ #include "./common/u_utool_common.h"
+ #include "./feature/u_utool_io_die.h"
+ #include "u_utool_dispatch.h"
++#include "u_utool_pkt.h"
+ 
+ #define UTOOL_INVALID_FD (-1)
+ 
+@@ -143,7 +144,7 @@ static int utool_check_ubase_device(char *file_path, char *dev_name)
+ 		tmp_con = strtok(con, "\n");
+ 		if ((strcmp(token, UTOOL_DRIVER_STR) == 0) &&
+ 		    (strcmp(tmp_con, UTOOL_UBASE_DRIVER) != 0)) {
+-			utool_warn_msg("Device is not ubase device, type = %s.\n", tmp_con);
++			utool_warn_msg("The device is not ubase device, type = %s.\n", tmp_con);
+ 			(void)fclose(fp);
+ 			return UTOOL_ERR;
+ 		}
+@@ -166,63 +167,6 @@ static int utool_check_ubase_device(char *file_path, char *dev_name)
+ 	return UTOOL_ERR;
+ }
+ 
+-static int utool_check_dev_chip_ctl_id(char *file_path, uint32_t chip_id, uint32_t die_id)
+-{
+-#define UTOOL_CHIP_ID_STR "chip_id"
+-#define UTOOL_DIE_ID_STR "die_id"
+-#define UTOOL_TAB_ASCII 9
+-
+-	uint32_t chip_id_tmp = UTOOL_DEV_CHIP_DIE_ID_MAX;
+-	uint32_t die_id_tmp = UTOOL_DEV_CHIP_DIE_ID_MAX;
+-	char *trimmed_str, *tmp_con, *token, *con;
+-	char tab_char = UTOOL_TAB_ASCII;
+-	char line[UTOOL_LINE_BUF_LEN];
+-	int ret = UTOOL_OK;
+-	FILE *fp;
+-
+-	fp = utool_open_file(file_path, "r");
+-	if (fp == NULL) {
+-		utool_err_msg("Failed to open the config file.\n");
+-		return UTOOL_ERR;
+-	}
+-
+-	while (fgets(line, UTOOL_LINE_BUF_LEN, fp) != NULL) {
+-		token = strtok(line, ":");
+-		if ((token == NULL) || ((con = strtok(NULL, "")) == NULL)) {
+-			continue;
+-		}
+-
+-		trimmed_str = token;
+-		while (*trimmed_str == tab_char) {
+-			trimmed_str++;
+-		}
+-		tmp_con = strtok(con, "\n");
+-		if (strcmp(trimmed_str, UTOOL_CHIP_ID_STR) == 0) {
+-			ret = utool_transform_str(tmp_con, &chip_id_tmp);
+-			if (ret != UTOOL_OK) {
+-				utool_err_msg("Failed to transform chip id.\n");
+-				break;
+-			}
+-			continue;
+-		}
+-		if (strcmp(trimmed_str, UTOOL_DIE_ID_STR) == 0) {
+-			ret = utool_transform_str(tmp_con, &die_id_tmp);
+-			if (ret != UTOOL_OK) {
+-				utool_err_msg("Failed to transform die id.\n");
+-				break;
+-			}
+-			continue;
+-		}
+-	}
+-	(void)fclose(fp);
+-
+-	if ((chip_id_tmp == chip_id) && (die_id_tmp == die_id)) {
+-		return UTOOL_OK;
+-	}
+-
+-	return UTOOL_ERR;
+-}
+-
+ static int utool_excute_io_die(struct utool_dev *dev)
+ {
+ 	struct utool_cmd_param cmd_param = {};
+@@ -280,13 +224,39 @@ static int utool_format_dev_path(struct utool_dev *dev, char *driver_path, struc
+ 	return UTOOL_OK;
+ }
+ 
+-static int utool_process_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id,
+-			      enum utool_dev_step_flag step_flag, char *ub_entity_name)
++static int utool_process_device_info(struct fwctl_rpc_ub_out *out)
+ {
+-#define UTOOL_SYS_CAP_INFO_PATH "/sys/kernel/debug/ubase/%s/caps_info"
++	struct fwctl_pkt_dev_info_match *dev_info_match;
+ 
+-	char sys_cap_path[UTOOL_DEV_NAME_LEN_MAX] = {};
+-	int ret;
++	dev_info_match = (struct fwctl_pkt_dev_info_match *)out->data;
++	if (dev_info_match->is_matched) {
++		return UTOOL_OK;
++	}
++
++	return UTOOL_ERR;
++}
++
++static int utool_check_dev_info(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id)
++{
++	uint32_t pkt_in_len = sizeof(struct fwctl_pkt_dev_info_match);
++	struct utool_pkt_exec pkt_exec = {
++		.rpc_cmd = UTOOL_CMD_QUERY_DEV_INFO,
++		.data_len = sizeof(struct fwctl_pkt_dev_info_match),
++		.execute = utool_process_device_info
++	};
++	struct fwctl_pkt_dev_info_match pkt_in_match = {
++		.chip_id = chip_id,
++		.die_id = die_id,
++		.is_matched = false,
++	};
++
++	return utool_pkt_operation(dev, &pkt_in_match, pkt_in_len, &pkt_exec);
++}
++
++static int utool_process_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id,
++			      enum utool_dev_step_flag step_flag)
++{
++	int ret = UTOOL_OK;
+ 
+ 	if (step_flag == UTOOL_DEV_STEP_LS) {
+ 		if (utool_excute_io_die(dev) != UTOOL_OK) {
+@@ -295,19 +265,18 @@ static int utool_process_step(struct utool_dev *dev, uint32_t chip_id, uint32_t
+ 		return UTOOL_ERR;
+ 	}
+ 
+-	if (step_flag == UTOOL_DEV_STEP_SCAN) {
+-		ret = snprintf(sys_cap_path, UTOOL_DEV_NAME_LEN_MAX, UTOOL_SYS_CAP_INFO_PATH, ub_entity_name);
+-		if (ret <= 0 || ret >= UTOOL_DEV_NAME_LEN_MAX) {
+-			utool_err_msg("Failed to format sys cap path, errno = %d, ret = %d.\n", errno, ret);
+-			return ret;
+-		}
++	if (utool_open(dev) != UTOOL_OK) {
++		return UTOOL_ERR;
++	}
+ 
+-		if (utool_check_dev_chip_ctl_id(sys_cap_path, chip_id, die_id) != UTOOL_OK) {
+-			return UTOOL_ERR;
++	if (step_flag == UTOOL_DEV_STEP_SCAN) {
++		ret = utool_check_dev_info(dev, chip_id, die_id);
++		if (ret != UTOOL_OK) {
++			utool_close(dev);
+ 		}
+ 	}
+ 
+-	return UTOOL_OK;
++	return ret;
+ }
+ 
+ static int utool_open_dev_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id,
+@@ -341,15 +310,12 @@ static int utool_open_dev_step(struct utool_dev *dev, uint32_t chip_id, uint32_t
+ 			continue;
+ 		}
+ 
+-		ret = utool_process_step(dev, chip_id, die_id, step_flag, ub_entity_name);
++		ret = utool_process_step(dev, chip_id, die_id, step_flag);
+ 		if (ret != UTOOL_OK) {
+ 			continue;
+ 		}
+ 
+ 		(void)closedir(class_dir);
+-		if (utool_open(dev) != UTOOL_OK) {
+-			return UTOOL_ERR;
+-		}
+ 
+ 		return UTOOL_OK;
+ 	}
+-- 
+2.50.1 (Apple Git-155)
+

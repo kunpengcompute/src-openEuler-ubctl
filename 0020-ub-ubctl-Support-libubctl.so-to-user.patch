@@ -1,0 +1,1010 @@
+From a042f79e151e8bb405b69c690e2b72247ee803b9 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Wed, 29 Jul 2026 15:37:37 +0800
+Subject: [PATCH 4/7] ub:ubctl:Support libubctl.so to user.
+
+tool inclusion
+category: feature
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/28
+CVE: NA
+
+--------------------------------------------------------------------------
+
+ubctl support libubctl.so to user, provide universal semantic free
+interface to support customized product information query
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ CMakeLists.txt             |  25 +++-
+ common/u_utool_common.c    | 282 +++++++++++++++++++++++++++++++++++++
+ common/u_utool_common.h    |  12 ++
+ common/u_utool_fwctl.c     |  57 +++++++-
+ include/u_utool_user_api.h |  27 ++++
+ kernel_headers/ub_fwctl.h  |  15 ++
+ u_utool_main.c             | 261 ----------------------------------
+ u_utool_user_api.c         | 178 +++++++++++++++++++++++
+ 8 files changed, 590 insertions(+), 267 deletions(-)
+ create mode 100644 common/u_utool_common.c
+ create mode 100644 include/u_utool_user_api.h
+ create mode 100644 u_utool_user_api.c
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 04b1331..fe0b0e8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,15 +1,35 @@
+ cmake_minimum_required(VERSION 3.5)
+-set(UB_TOOL_VERSION 0.1.0)
+ 
+-project(ubctl VERSION ${UB_TOOL_VERSION} LANGUAGES C CXX)
++project(ubctl_so VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
+ 
+ include_directories(./)
++include_directories(./common)
++include_directories(./feature)
++include_directories(./protocol_layer)
+ file(GLOB UTOOL_SRC
+     ./*.c
+     ./common/*.c
+     ./feature/*.c
+     ./protocol_layer/*.c)
+ 
++set(UTOOL_SRC_LIB ${UTOOL_SRC})
++list(REMOVE_ITEM UTOOL_SRC_LIB
++    ${CMAKE_CURRENT_SOURCE_DIR}/u_utool_main.c
++)
++
++add_library(ubctl_so SHARED ${UTOOL_SRC_LIB})
++
++target_link_directories(ubctl_so PRIVATE ${CMAKE_INSTALL_PREFIX}/lib)
++
++set_target_properties(ubctl_so PROPERTIES
++    SOVERSION ${LIB_SOVERSION}
++    VERSION ${PROJECT_VERSION}
++    POSITION_INDEPENDENT_CODE ON
++    OUTPUT_NAME "ubctl"
++)
++
++install(TARGETS ubctl_so LIBRARY DESTINATION lib64 OPTIONAL)
++
+ add_executable(ubctl ${UTOOL_SRC})
+ 
+ target_link_directories(ubctl PRIVATE ${CMAKE_INSTALL_PREFIX}/lib)
+@@ -24,3 +44,4 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wuninitialized -Wno-error=format -Wun
+     -Wreturn-local-addr -Wredundant-decls -Wfloat-conversion -Wmissing-prototypes -Wstrict-prototypes")
+ 
+ install(TARGETS ubctl RUNTIME DESTINATION bin OPTIONAL)
++install(FILES include/u_utool_user_api.h DESTINATION include/)
+diff --git a/common/u_utool_common.c b/common/u_utool_common.c
+new file mode 100644
+index 0000000..433238a
+--- /dev/null
++++ b/common/u_utool_common.c
+@@ -0,0 +1,282 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Copyright (c) 2026 HiSilicon Technologies Co., Ltd. All rights reserved.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
++ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
++ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
++ */
++
++#include <ctype.h>
++#include <stddef.h>
++#include <fcntl.h>
++#include <dirent.h>
++#include <errno.h>
++#include <unistd.h>
++
++#include "u_utool_error.h"
++#include "../u_utool_dispatch.h"
++#include "../u_utool_pkt.h"
++#include "../feature/u_utool_io_die.h"
++#include "u_utool_common.h"
++
++void utool_close(struct utool_dev *dev)
++{
++	if (dev == NULL) {
++		utool_err_msg("Dev is NULL.\n");
++		return;
++	}
++
++	if (dev->fd >= 0) {
++		close(dev->fd);
++		dev->fd = UTOOL_INVALID_FD;
++	}
++}
++
++static int utool_open(struct utool_dev *dev)
++{
++	char *resolved_path = NULL;
++
++	dev->fd = UTOOL_INVALID_FD;
++	resolved_path = realpath(dev->devname, NULL);
++	if (resolved_path == NULL) {
++		utool_err_msg("Failed to resolve the devname, errno = %d.\n", errno);
++		return UTOOL_ERR;
++	}
++
++	dev->fd = open(resolved_path, O_RDWR);
++	if (dev->fd < 0) {
++		utool_err_msg("Please insmod ub_fwctl.ko and make sure the device file exists, errno = %d.\n", errno);
++		UTOOL_FREE(resolved_path);
++		return UTOOL_ERR;
++	}
++
++	UTOOL_FREE(resolved_path);
++	return UTOOL_OK;
++}
++
++static FILE *utool_open_file(const char *file_path, const char *mode)
++{
++	char *resolved_path = NULL;
++	FILE *fp = NULL;
++
++	resolved_path = realpath(file_path, NULL);
++	if (resolved_path == NULL) {
++		utool_err_msg("Failed to get realpath, errno = %d.\n", errno);
++		return NULL;
++	}
++	fp = fopen(resolved_path, mode);
++	UTOOL_FREE(resolved_path);
++	return fp;
++}
++
++static int utool_check_ubase_device(char *file_path, char *dev_name)
++{
++#define UTOOL_UB_ENTITY_NAME_STR "UB_ENTITY_NAME"
++#define UTOOL_UBASE_DRIVER "ubase"
++#define UTOOL_DRIVER_STR "DRIVER"
++
++	char line[UTOOL_LINE_BUF_LEN];
++	char *tmp_con = NULL;
++	char *token = NULL;
++	int ret = UTOOL_OK;
++	char *con = NULL;
++	FILE *fp = NULL;
++
++	fp = utool_open_file(file_path, "r");
++	if (fp == NULL) {
++		utool_err_msg("Failed to open the device file.\n");
++		return UTOOL_ERR;
++	}
++
++	while (fgets(line, UTOOL_LINE_BUF_LEN, fp) != NULL) {
++		token = strtok(line, "=");
++		if ((token == NULL) || ((con = strtok(NULL, "")) == NULL)) {
++			continue;
++		}
++
++		tmp_con = strtok(con, "\n");
++		if ((strcmp(token, UTOOL_DRIVER_STR) == 0) &&
++		    (strcmp(tmp_con, UTOOL_UBASE_DRIVER) != 0)) {
++			utool_warn_msg("The device is not ubase device, type = %s.\n", tmp_con);
++			(void)fclose(fp);
++			return UTOOL_ERR;
++		}
++
++		if (strcmp(token, UTOOL_UB_ENTITY_NAME_STR) == 0) {
++			ret = snprintf(dev_name, UTOOL_DEV_NAME_LEN_MAX, "%s", tmp_con);
++			if (ret <= 0 || ret >= UTOOL_DEV_NAME_LEN_MAX) {
++				utool_err_msg("Failed to format dev name, errno = %d, ret = %d.\n", errno, ret);
++				(void)fclose(fp);
++				return UTOOL_ERR;
++			}
++			(void)fclose(fp);
++			return UTOOL_OK;
++		}
++	}
++
++	(void)fclose(fp);
++	utool_err_msg("Failed to find ubase device.\n");
++
++	return UTOOL_ERR;
++}
++
++static int utool_excute_io_die(struct utool_dev *dev)
++{
++	struct utool_cmd_param cmd_param = {};
++
++	if (utool_open(dev) != UTOOL_OK) {
++		return UTOOL_ERR;
++	}
++
++	if (utool_io_die_cmd(dev, &cmd_param) != UTOOL_OK) {
++		utool_close(dev);
++		utool_err_msg("Failed to query port info , errno = %d.\n", errno);
++		return UTOOL_ERR;
++	}
++	utool_close(dev);
++
++	return UTOOL_OK;
++}
++
++static int utool_proc_excption_dev(uint32_t chip_id, uint32_t die_id, enum utool_dev_step_flag step_flag)
++{
++	if (step_flag == UTOOL_DEV_STEP_LS) {
++		utool_reg_msg("\ntotal ubctl count: %u\n", utool_get_ubctl_id());
++		return UTOOL_OK_LS;
++	}
++
++	if (step_flag == UTOOL_DEV_STEP_SCAN) {
++		utool_err_msg("Ubctl device not found. chip_id = %u, die_id = %u\n", chip_id, die_id);
++	} else {
++		utool_err_msg("Ubctl device not found\n");
++	}
++	return UTOOL_ERR;
++}
++
++#define UTOOL_FWCTL_PATH "/dev/fwctl"
++static int utool_format_dev_path(struct utool_dev *dev, char *driver_path, struct dirent *entry)
++{
++#define UTOOL_SYS_CLASS_PATH "/sys/class/fwctl"
++#define UTOOL_DEV_UEVENT_NAME "device/uevent"
++
++	int ret;
++
++	ret = snprintf(driver_path, UTOOL_DEV_NAME_LEN_MAX, UTOOL_SYS_CLASS_PATH "/%s/" UTOOL_DEV_UEVENT_NAME,
++		       entry->d_name);
++	if (ret <= 0 || ret >= UTOOL_DEV_NAME_LEN_MAX) {
++		utool_err_msg("Failed to format driver path, errno = %d, ret = %d.\n", errno, ret);
++		return UTOOL_ERR;
++	}
++
++	ret = snprintf(dev->devname, UTOOL_DEV_NAME_LEN_MAX, UTOOL_FWCTL_PATH "/%s", entry->d_name);
++	if (ret <= 0 || ret >= UTOOL_DEV_NAME_LEN_MAX) {
++		utool_err_msg("Failed to format fwctl dev name, errno = %d, ret = %d.\n", errno, ret);
++		return UTOOL_ERR;
++	}
++
++	return UTOOL_OK;
++}
++
++static int utool_process_device_info(struct fwctl_rpc_ub_out *out)
++{
++	struct fwctl_pkt_dev_info_match *dev_info_match;
++
++	dev_info_match = (struct fwctl_pkt_dev_info_match *)out->data;
++	if (dev_info_match->is_matched) {
++		return UTOOL_OK;
++	}
++
++	return UTOOL_ERR;
++}
++
++static int utool_check_dev_info(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id)
++{
++	uint32_t pkt_in_len = sizeof(struct fwctl_pkt_dev_info_match);
++	struct utool_pkt_exec pkt_exec = {
++		.rpc_cmd = UTOOL_CMD_QUERY_DEV_INFO,
++		.data_len = sizeof(struct fwctl_pkt_dev_info_match),
++		.execute = utool_process_device_info
++	};
++	struct fwctl_pkt_dev_info_match pkt_in_match = {
++		.chip_id = chip_id,
++		.die_id = die_id,
++		.is_matched = false,
++	};
++
++	return utool_pkt_operation(dev, &pkt_in_match, pkt_in_len, &pkt_exec);
++}
++
++static int utool_process_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id,
++			      enum utool_dev_step_flag step_flag)
++{
++	int ret = UTOOL_OK;
++
++	if (step_flag == UTOOL_DEV_STEP_LS) {
++		if (utool_excute_io_die(dev) != UTOOL_OK) {
++			utool_err_msg("Failed to query port bitmap.\n");
++		}
++		return UTOOL_ERR;
++	}
++
++	if (utool_open(dev) != UTOOL_OK) {
++		return UTOOL_ERR;
++	}
++
++	if (step_flag == UTOOL_DEV_STEP_SCAN) {
++		ret = utool_check_dev_info(dev, chip_id, die_id);
++		if (ret != UTOOL_OK) {
++			utool_close(dev);
++		}
++	}
++
++	return ret;
++}
++
++int utool_open_dev_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id,
++			enum utool_dev_step_flag step_flag)
++{
++	char driver_path[UTOOL_DEV_NAME_LEN_MAX] = {};
++	char ub_entity_name[UTOOL_DEV_NAME_LEN_MAX] = {};
++	struct dirent *entry = NULL;
++	DIR *class_dir = NULL;
++	int ret = UTOOL_OK;
++
++	if (dev == NULL) {
++		utool_err_msg("Dev is NULL.\n");
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if ((class_dir = opendir(UTOOL_FWCTL_PATH)) == NULL) {
++		utool_err_msg("Failed to open dir %s, errno = %d.\n", UTOOL_FWCTL_PATH, errno);
++		return UTOOL_ERR;
++	}
++
++	while ((entry = readdir(class_dir)) != NULL) {
++		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
++			continue;
++		}
++
++		ret = utool_format_dev_path(dev, driver_path, entry);
++		if (ret != UTOOL_OK) {
++			utool_err_msg("Failed to format dev name.\n");
++			(void)closedir(class_dir);
++			return ret;
++		}
++
++		if (utool_check_ubase_device(driver_path, ub_entity_name) != UTOOL_OK) {
++			utool_warn_msg("Ubctl device: %s not ubase device\n", entry->d_name);
++			continue;
++		}
++
++		ret = utool_process_step(dev, chip_id, die_id, step_flag);
++		if (ret != UTOOL_OK) {
++			continue;
++		}
++
++		(void)closedir(class_dir);
++
++		return UTOOL_OK;
++	}
++	(void)closedir(class_dir);
++	return utool_proc_excption_dev(chip_id, die_id, step_flag);
++}
+diff --git a/common/u_utool_common.h b/common/u_utool_common.h
+index 3674fe5..f3838e3 100644
+--- a/common/u_utool_common.h
++++ b/common/u_utool_common.h
+@@ -20,6 +20,8 @@
+ 
+ #define UTOOL_VERSION 0
+ 
++#define UTOOL_INVALID_FD (-1)
++
+ #define UTOOL_ENV_VER_UNKNOWN (0U)
+ #define UTOOL_ENV_VER_A_0 (1000U)
+ #define UTOOL_ENV_VER_A_1 (1001U)
+@@ -153,6 +155,13 @@ enum utool_reg_location {
+ 	UTOOL_REG_LOC31 = 31,
+ };
+ 
++enum utool_dev_step_flag {
++	UTOOL_DEV_STEP_SCAN = 0,
++	UTOOL_DEV_STEP_LS,
++	UTOOL_DEV_STEP_UMMU,
++	UTOOL_DEV_STEP_DEBUGFS,
++};
++
+ struct utool_dev {
+ 	char devname[UTOOL_DEV_NAME_LEN_MAX];
+ 	int32_t fd;
+@@ -203,4 +212,7 @@ struct utool_cmd_option_parse {
+ 	int (*cmd_select_func) (char *param);
+ };
+ 
++void utool_close(struct utool_dev *dev);
++int utool_open_dev_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id, enum utool_dev_step_flag step_flag);
++
+ #endif
+diff --git a/common/u_utool_fwctl.c b/common/u_utool_fwctl.c
+index 35b139f..aa6127f 100644
+--- a/common/u_utool_fwctl.c
++++ b/common/u_utool_fwctl.c
+@@ -11,6 +11,53 @@
+ #include "u_utool_error.h"
+ #include "u_utool_fwctl.h"
+ 
++static void utool_handle_eopnotsupp_error(uint32_t rpc_cmd)
++{
++	switch (rpc_cmd) {
++		case UTOOL_CMD_CONF_NL_SSU_VL_PKT:
++		case UTOOL_CMD_QUERY_NL_SSU_VL_PKT:
++		case UTOOL_CMD_QUERY_LOOPBACK:
++		case UTOOL_CMD_CONF_LOOPBACK:
++		case UTOOL_CMD_QUERY_PRBS_EN:
++		case UTOOL_CMD_CONF_PRBS_EN:
++		case UTOOL_CMD_QUERY_PRBS_RESULT:
++			utool_err_msg("The cmd(%#x) is not supported at current port type(UB).\n", rpc_cmd);
++			break;
++		case UTOOL_CMD_QUERY_DL:
++		case UTOOL_CMD_QUERY_DL_PKT_STATS:
++		case UTOOL_CMD_QUERY_DL_LINK_STATUS:
++		case UTOOL_CMD_QUERY_DL_LANE:
++		case UTOOL_CMD_QUERY_DL_BIT_ERR:
++		case UTOOL_CMD_QUERY_DL_LINK_TRACE:
++		case UTOOL_CMD_QUERY_DL_BIST:
++		case UTOOL_CMD_CONF_DL_BIST:
++		case UTOOL_CMD_QUERY_DL_BIST_ERR:
++		case UTOOL_CMD_QUERY_DL_PERFORMANCE:
++		case UTOOL_CMD_QUERY_DL_RT_BANDWIDTH:
++		case UTOOL_CMD_QUERY_DL_PERF_START:
++		case UTOOL_CMD_QUERY_DL_PERF:
++		case UTOOL_CMD_QUERY_DL_PERF_STOP:
++			utool_err_msg("The cmd(%#x) is not supported at current port type(UBOE).\n", rpc_cmd);
++			break;
++		default:
++			utool_err_msg("Failed to interaction with the kernel.\n");
++			break;
++	}
++}
++
++static void utool_handle_ioctl_errors(int errno_value, uint32_t rpc_cmd)
++{
++	if (errno_value == ENOTTY) {
++		utool_err_msg("The cmd(%#x) is not supported at current env type.\n", rpc_cmd);
++		return;
++	}
++
++	if (errno_value == EOPNOTSUPP) {
++		utool_handle_eopnotsupp_error(rpc_cmd);
++		return;
++	}
++}
++
+ int utool_cmd_exec(struct utool_dev *dev, struct fwctl_rpc_ub_in *in, uint32_t inlen,
+ 		   struct fwctl_rpc_ub_out *out, uint32_t *outlen)
+ {
+@@ -33,14 +80,16 @@ int utool_cmd_exec(struct utool_dev *dev, struct fwctl_rpc_ub_in *in, uint32_t i
+ 
+ 	ret = ioctl(dev->fd, FWCTL_RPC, &rpc);
+ 	if (ret != 0) {
+-		if (errno == ENOTTY) {
+-			utool_err_msg("The cmd is not supported at current env type.\n");
+-			return UTOOL_ERR_IOCTL;
+-		}
++		utool_handle_ioctl_errors(errno, in->rpc_cmd);
+ 		utool_err_msg("Failed to interaction with the kernel, ret = %d, errno = %d.\n", ret, errno);
+ 		return UTOOL_ERR_IOCTL;
+ 	}
+ 
++	if (out->retval == -EACCES) {
++		utool_err_msg("Permission denied: root user required for configuration commands.\n");
++		return UTOOL_ERR_IOCTL;
++	}
++
+ 	if (rpc.outlen > UBCTL_MAX_OUT_LEN) {
+ 		utool_err_msg("The out data size = %ubytes is bigger than max size = %ubytes.\n",
+ 			      rpc.outlen, UBCTL_MAX_OUT_LEN);
+diff --git a/include/u_utool_user_api.h b/include/u_utool_user_api.h
+new file mode 100644
+index 0000000..15faf6b
+--- /dev/null
++++ b/include/u_utool_user_api.h
+@@ -0,0 +1,27 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * Copyright (c) 2026 HiSilicon Technologies Co., Ltd. All rights reserved.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
++ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
++ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
++ */
++
++#ifndef __U_UTOOL_API_H__
++#define __U_UTOOL_API_H__
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define UBCTL_USER_CMD_COMM 0x0001
++
++struct ubctl_cmd_buf {
++	unsigned short opcode;
++	bool is_read;
++	unsigned int data_size;
++	void *data;
++};
++
++int ubctl_user_comm_api(uint32_t chip_id, uint32_t die_id, uint32_t ubctl_cmd,
++			struct ubctl_cmd_buf *in, struct ubctl_cmd_buf *out);
++
++#endif
+diff --git a/kernel_headers/ub_fwctl.h b/kernel_headers/ub_fwctl.h
+index b6db9e3..95e0360 100644
+--- a/kernel_headers/ub_fwctl.h
++++ b/kernel_headers/ub_fwctl.h
+@@ -316,6 +316,11 @@ enum ub_fwctl_cmdrpc_type {
+ 	 */
+ 	UTOOL_CMD_QUERY_PORT_LINK_STATS = 0x00F1,
+ 
++	/**
++	 * @UBCTL_CMD_QUERY_CONF_USER_COMM: User-space interface command code
++	 */
++	UBCTL_CMD_QUERY_CONF_USER_COMM = 0x0101,
++
+ 	/**
+ 	 * @UTOOL_CMD_QUERY_DEV_INFO: Query all ubctl device info
+ 	 */
+@@ -409,5 +414,15 @@ struct fwctl_pkt_dev_info_match {
+ 	__u8 reserved[3];
+ };
+ 
++/**
++ * struct ubctl_cmd_in_head - ioctl(UBCTL_RPC) input header
++ * @opcode: The operation code indicating the type of command
++ * @is_read: Flag indicating whether the operation is a read (1) or write (0)
++ */
++struct ubctl_cmd_in_head {
++	__u32 opcode;
++	__u32 is_read;
++};
++
+ #endif
+ 
+diff --git a/u_utool_main.c b/u_utool_main.c
+index 860469d..45c8da1 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -19,15 +19,6 @@
+ #include "u_utool_dispatch.h"
+ #include "u_utool_pkt.h"
+ 
+-#define UTOOL_INVALID_FD (-1)
+-
+-enum utool_dev_step_flag {
+-	UTOOL_DEV_STEP_SCAN = 0,
+-	UTOOL_DEV_STEP_LS,
+-	UTOOL_DEV_STEP_UMMU,
+-	UTOOL_DEV_STEP_DEBUGFS,
+-};
+-
+ static void utool_help(void)
+ {
+ 	utool_info_msg("Usage: ubctl <-c ${chip_id}> <-d ${ub_ctl_id}> <-m ${module}>\n"
+@@ -71,258 +62,6 @@ static void utool_help(void)
+ 		       "   ubctl -m ba -p 0 -f pkt_stats -d 0 -c 0     query BA packet statistics\n\n");
+ }
+ 
+-static void utool_close(struct utool_dev *dev)
+-{
+-	if (dev->fd >= 0) {
+-		close(dev->fd);
+-		dev->fd = UTOOL_INVALID_FD;
+-	}
+-}
+-
+-static int utool_open(struct utool_dev *dev)
+-{
+-	char *resolved_path = NULL;
+-
+-	dev->fd = UTOOL_INVALID_FD;
+-	resolved_path = realpath(dev->devname, NULL);
+-	if (resolved_path == NULL) {
+-		utool_err_msg("Failed to resolve the devname, errno = %d.\n", errno);
+-		return UTOOL_ERR;
+-	}
+-
+-	dev->fd = open(resolved_path, O_RDWR);
+-	if (dev->fd < 0) {
+-		utool_err_msg("Please insmod ub_fwctl.ko and make sure the device file exists, errno = %d.\n", errno);
+-		UTOOL_FREE(resolved_path);
+-		return UTOOL_ERR;
+-	}
+-
+-	UTOOL_FREE(resolved_path);
+-	return UTOOL_OK;
+-}
+-
+-static FILE *utool_open_file(const char *file_path, const char *mode)
+-{
+-	char *resolved_path = NULL;
+-	FILE *fp = NULL;
+-
+-	resolved_path = realpath(file_path, NULL);
+-	if (resolved_path == NULL) {
+-		utool_err_msg("Failed to get realpath, errno = %d.\n", errno);
+-		return NULL;
+-	}
+-	fp = fopen(resolved_path, mode);
+-	UTOOL_FREE(resolved_path);
+-	return fp;
+-}
+-
+-static int utool_check_ubase_device(char *file_path, char *dev_name)
+-{
+-#define UTOOL_UB_ENTITY_NAME_STR "UB_ENTITY_NAME"
+-#define UTOOL_UBASE_DRIVER "ubase"
+-#define UTOOL_DRIVER_STR "DRIVER"
+-
+-	char line[UTOOL_LINE_BUF_LEN];
+-	char *tmp_con = NULL;
+-	char *token = NULL;
+-	int ret = UTOOL_OK;
+-	char *con = NULL;
+-	FILE *fp = NULL;
+-
+-	fp = utool_open_file(file_path, "r");
+-	if (fp == NULL) {
+-		utool_err_msg("Failed to open the device file.\n");
+-		return UTOOL_ERR;
+-	}
+-
+-	while (fgets(line, UTOOL_LINE_BUF_LEN, fp) != NULL) {
+-		token = strtok(line, "=");
+-		if ((token == NULL) || ((con = strtok(NULL, "")) == NULL)) {
+-			continue;
+-		}
+-
+-		tmp_con = strtok(con, "\n");
+-		if ((strcmp(token, UTOOL_DRIVER_STR) == 0) &&
+-		    (strcmp(tmp_con, UTOOL_UBASE_DRIVER) != 0)) {
+-			utool_warn_msg("The device is not ubase device, type = %s.\n", tmp_con);
+-			(void)fclose(fp);
+-			return UTOOL_ERR;
+-		}
+-
+-		if (strcmp(token, UTOOL_UB_ENTITY_NAME_STR) == 0) {
+-			ret = snprintf(dev_name, UTOOL_DEV_NAME_LEN_MAX, "%s", tmp_con);
+-			if (ret <= 0 || ret >= UTOOL_DEV_NAME_LEN_MAX) {
+-				utool_err_msg("Failed to format dev name, errno = %d, ret = %d.\n", errno, ret);
+-				(void)fclose(fp);
+-				return UTOOL_ERR;
+-			}
+-			(void)fclose(fp);
+-			return UTOOL_OK;
+-		}
+-	}
+-
+-	(void)fclose(fp);
+-	utool_err_msg("Failed to find ubase device.\n");
+-
+-	return UTOOL_ERR;
+-}
+-
+-static int utool_excute_io_die(struct utool_dev *dev)
+-{
+-	struct utool_cmd_param cmd_param = {};
+-
+-	if (utool_open(dev) != UTOOL_OK) {
+-		return UTOOL_ERR;
+-	}
+-
+-	if (utool_io_die_cmd(dev, &cmd_param) != UTOOL_OK) {
+-		utool_close(dev);
+-		utool_err_msg("Failed to query port info , errno = %d.\n", errno);
+-		return UTOOL_ERR;
+-	}
+-	utool_close(dev);
+-
+-	return UTOOL_OK;
+-}
+-
+-static int utool_proc_excption_dev(uint32_t chip_id, uint32_t die_id, enum utool_dev_step_flag step_flag)
+-{
+-	if (step_flag == UTOOL_DEV_STEP_LS) {
+-		utool_reg_msg("\ntotal ubctl count: %u\n", utool_get_ubctl_id());
+-		return UTOOL_OK_LS;
+-	}
+-
+-	if (step_flag == UTOOL_DEV_STEP_SCAN) {
+-		utool_err_msg("Ubctl device not found. chip_id = %u, die_id = %u\n", chip_id, die_id);
+-	} else {
+-		utool_err_msg("Ubctl device not found\n");
+-	}
+-	return UTOOL_ERR;
+-}
+-
+-#define UTOOL_FWCTL_PATH "/dev/fwctl"
+-static int utool_format_dev_path(struct utool_dev *dev, char *driver_path, struct dirent *entry)
+-{
+-#define UTOOL_SYS_CLASS_PATH "/sys/class/fwctl"
+-#define UTOOL_DEV_UEVENT_NAME "device/uevent"
+-
+-	int ret;
+-
+-	ret = snprintf(driver_path, UTOOL_DEV_NAME_LEN_MAX, UTOOL_SYS_CLASS_PATH "/%s/" UTOOL_DEV_UEVENT_NAME,
+-		       entry->d_name);
+-	if (ret <= 0 || ret >= UTOOL_DEV_NAME_LEN_MAX) {
+-		utool_err_msg("Failed to format driver path, errno = %d, ret = %d.\n", errno, ret);
+-		return UTOOL_ERR;
+-	}
+-
+-	ret = snprintf(dev->devname, UTOOL_DEV_NAME_LEN_MAX, UTOOL_FWCTL_PATH "/%s", entry->d_name);
+-	if (ret <= 0 || ret >= UTOOL_DEV_NAME_LEN_MAX) {
+-		utool_err_msg("Failed to format fwctl dev name, errno = %d, ret = %d.\n", errno, ret);
+-		return UTOOL_ERR;
+-	}
+-
+-	return UTOOL_OK;
+-}
+-
+-static int utool_process_device_info(struct fwctl_rpc_ub_out *out)
+-{
+-	struct fwctl_pkt_dev_info_match *dev_info_match;
+-
+-	dev_info_match = (struct fwctl_pkt_dev_info_match *)out->data;
+-	if (dev_info_match->is_matched) {
+-		return UTOOL_OK;
+-	}
+-
+-	return UTOOL_ERR;
+-}
+-
+-static int utool_check_dev_info(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id)
+-{
+-	uint32_t pkt_in_len = sizeof(struct fwctl_pkt_dev_info_match);
+-	struct utool_pkt_exec pkt_exec = {
+-		.rpc_cmd = UTOOL_CMD_QUERY_DEV_INFO,
+-		.data_len = sizeof(struct fwctl_pkt_dev_info_match),
+-		.execute = utool_process_device_info
+-	};
+-	struct fwctl_pkt_dev_info_match pkt_in_match = {
+-		.chip_id = chip_id,
+-		.die_id = die_id,
+-		.is_matched = false,
+-	};
+-
+-	return utool_pkt_operation(dev, &pkt_in_match, pkt_in_len, &pkt_exec);
+-}
+-
+-static int utool_process_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id,
+-			      enum utool_dev_step_flag step_flag)
+-{
+-	int ret = UTOOL_OK;
+-
+-	if (step_flag == UTOOL_DEV_STEP_LS) {
+-		if (utool_excute_io_die(dev) != UTOOL_OK) {
+-			utool_err_msg("Failed to query port bitmap.\n");
+-		}
+-		return UTOOL_ERR;
+-	}
+-
+-	if (utool_open(dev) != UTOOL_OK) {
+-		return UTOOL_ERR;
+-	}
+-
+-	if (step_flag == UTOOL_DEV_STEP_SCAN) {
+-		ret = utool_check_dev_info(dev, chip_id, die_id);
+-		if (ret != UTOOL_OK) {
+-			utool_close(dev);
+-		}
+-	}
+-
+-	return ret;
+-}
+-
+-static int utool_open_dev_step(struct utool_dev *dev, uint32_t chip_id, uint32_t die_id,
+-			       enum utool_dev_step_flag step_flag)
+-{
+-	char driver_path[UTOOL_DEV_NAME_LEN_MAX] = {};
+-	char ub_entity_name[UTOOL_DEV_NAME_LEN_MAX] = {};
+-	struct dirent *entry = NULL;
+-	DIR *class_dir = NULL;
+-	int ret = UTOOL_OK;
+-
+-	if ((class_dir = opendir(UTOOL_FWCTL_PATH)) == NULL) {
+-		utool_err_msg("Failed to open dir %s, errno = %d.\n", UTOOL_FWCTL_PATH, errno);
+-		return UTOOL_ERR;
+-	}
+-
+-	while ((entry = readdir(class_dir)) != NULL) {
+-		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+-			continue;
+-		}
+-
+-		ret = utool_format_dev_path(dev, driver_path, entry);
+-		if (ret != UTOOL_OK) {
+-			utool_err_msg("Failed to format dev name.\n");
+-			(void)closedir(class_dir);
+-			return ret;
+-		}
+-
+-		if (utool_check_ubase_device(driver_path, ub_entity_name) != UTOOL_OK) {
+-			utool_warn_msg("Ubctl device: %s not ubase device\n", entry->d_name);
+-			continue;
+-		}
+-
+-		ret = utool_process_step(dev, chip_id, die_id, step_flag);
+-		if (ret != UTOOL_OK) {
+-			continue;
+-		}
+-
+-		(void)closedir(class_dir);
+-
+-		return UTOOL_OK;
+-	}
+-	(void)closedir(class_dir);
+-	return utool_proc_excption_dev(chip_id, die_id, step_flag);
+-}
+-
+ static int utool_check_arg(int argc, char **argv)
+ {
+ 	char *argv_ptr = NULL;
+diff --git a/u_utool_user_api.c b/u_utool_user_api.c
+new file mode 100644
+index 0000000..42c1f16
+--- /dev/null
++++ b/u_utool_user_api.c
+@@ -0,0 +1,178 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Copyright (c) 2026 HiSilicon Technologies Co., Ltd. All rights reserved.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
++ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
++ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
++ */
++
++#include "./common/u_utool_error.h"
++#include "./common/u_utool_fwctl.h"
++#include "./include/u_utool_user_api.h"
++
++#define UBCTL_OPCODE_MAX_LEN 1016U
++
++struct ubctl_cmd_map {
++	uint32_t user_cmd;
++	enum ub_fwctl_cmdrpc_type rpc_type;
++};
++
++static struct ubctl_cmd_map g_cmd_map_table[] = {
++	{ UBCTL_USER_CMD_COMM, UBCTL_CMD_QUERY_CONF_USER_COMM },
++};
++
++static int utool_user_api_check_param(uint32_t *ubctl_cmd, const struct ubctl_cmd_buf *in,
++				      const struct ubctl_cmd_buf *out, uint32_t *max_data_len)
++{
++	uint32_t cmd_map_size = UTOOL_ARRAY_SIZE(g_cmd_map_table);
++	uint32_t i;
++
++	if (in == NULL || out == NULL) {
++		utool_err_msg("Invalid param: in or out is NULL.\n");
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if (in->is_read && (!out->data || out->data_size == 0)) {
++		utool_err_msg("Invalid param: out buffer is empty.\n");
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if (in->data_size > 0 && in->data == NULL) {
++		utool_err_msg("Invalid param: in data size = %ubytes and in->data is NULL.\n", in->data_size);
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if (out->data_size > 0 && out->data == NULL) {
++		utool_err_msg("Invalid param: out data size = %ubytes and out->data is NULL.\n", out->data_size);
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if (in->data_size > UBCTL_OPCODE_MAX_LEN || out->data_size > UBCTL_OPCODE_MAX_LEN) {
++		utool_err_msg("Invalid param: in data size = %ubytes or out data size = %ubytes is bigger than max size = %ubytes.\n",
++			      in->data_size, out->data_size, UBCTL_OPCODE_MAX_LEN);
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	*max_data_len = (in->data_size > out->data_size) ? in->data_size : out->data_size;
++
++	for (i = 0; i < cmd_map_size; i++) {
++		if (g_cmd_map_table[i].user_cmd == *ubctl_cmd) {
++			*ubctl_cmd = g_cmd_map_table[i].rpc_type;
++			return UTOOL_OK;
++		}
++	}
++
++	utool_err_msg("Invalid param: unknown ubctl_cmd = %u.\n", *ubctl_cmd);
++	return UTOOL_ERR_INVALID_CMD;
++}
++
++static struct fwctl_rpc_ub_in *utool_create_pkt_in_api(uint32_t *pkt_in_len, uint32_t rpc_cmd,
++						       const struct ubctl_cmd_buf *in, uint32_t max_data_len)
++{
++	uint32_t head_len = sizeof(struct ubctl_cmd_in_head);
++	struct ubctl_cmd_in_head *head = NULL;
++	struct fwctl_rpc_ub_in *rpc_in = NULL;
++	uint32_t in_data_len = max_data_len;
++	uint32_t total_data_len;
++
++	total_data_len = head_len + in_data_len;
++	*pkt_in_len = (uint32_t)(sizeof(struct fwctl_rpc_ub_in) + total_data_len);
++	rpc_in = (struct fwctl_rpc_ub_in *)UTOOL_MALLOC(*pkt_in_len);
++	if (rpc_in == NULL) {
++		utool_err_msg("Failed to malloc space for pkt in.\n");
++		return NULL;
++	}
++
++	memset(rpc_in, 0x0, *pkt_in_len);
++	rpc_in->rpc_cmd = rpc_cmd;
++	rpc_in->data_size = total_data_len;
++	rpc_in->version = UTOOL_VERSION;
++
++	head = (struct ubctl_cmd_in_head *)rpc_in->data;
++	head->opcode = in->opcode;
++	head->is_read = in->is_read;
++
++	if (in->data && in->data_size != 0) {
++		memcpy((uint8_t *)(rpc_in->data) + head_len, in->data, in->data_size);
++	}
++	return rpc_in;
++}
++
++static struct fwctl_rpc_ub_out *utool_create_pkt_out_api(uint32_t *pkt_out_len, uint32_t max_data_len)
++{
++	struct fwctl_rpc_ub_out *rpc_out = NULL;
++	uint32_t out_data_len = max_data_len;
++
++	*pkt_out_len = (uint32_t)(sizeof(struct fwctl_rpc_ub_out) + out_data_len);
++	rpc_out = (struct fwctl_rpc_ub_out *)UTOOL_MALLOC(*pkt_out_len);
++	if (rpc_out == NULL) {
++		utool_err_msg("Failed to malloc space for pkt out.\n");
++		return NULL;
++	}
++
++	memset(rpc_out, 0x0, *pkt_out_len);
++	return rpc_out;
++}
++
++int ubctl_user_comm_api(uint32_t chip_id, uint32_t die_id, uint32_t ubctl_cmd,
++			struct ubctl_cmd_buf *in, struct ubctl_cmd_buf *out)
++{
++	struct fwctl_rpc_ub_out *rpc_out = NULL;
++	struct fwctl_rpc_ub_in *rpc_in = NULL;
++	struct utool_dev dev = {};
++	uint32_t max_data_len = 0;
++	uint32_t rpc_out_len = 0;
++	uint32_t rpc_in_len = 0;
++	int ret;
++
++	ret = utool_user_api_check_param(&ubctl_cmd, in, out, &max_data_len);
++	if (ret != UTOOL_OK) {
++		return ret;
++	}
++
++	ret = utool_open_dev_step(&dev, chip_id, die_id, UTOOL_DEV_STEP_SCAN);
++	if (ret != UTOOL_OK) {
++		return ret;
++	}
++
++	rpc_in = utool_create_pkt_in_api(&rpc_in_len, ubctl_cmd, in, max_data_len);
++	if (rpc_in == NULL) {
++		ret = UTOOL_ERR_MALLOC;
++		goto close_dev;
++	}
++
++	rpc_out = utool_create_pkt_out_api(&rpc_out_len, max_data_len);
++	if (rpc_out == NULL) {
++		ret = UTOOL_ERR_MALLOC;
++		goto free_pkt_in;
++	}
++
++	ret = utool_cmd_exec(&dev, rpc_in, rpc_in_len, rpc_out, &rpc_out_len);
++	if (rpc_out->retval != 0) {
++		if (ret == UTOOL_OK) {
++			ret = UTOOL_ERR_IOCTL;
++		}
++		utool_err_msg("Command execution failed, retval = %d.\n", rpc_out->retval);
++		goto free_pkt_out;
++	}
++
++	if (ret != UTOOL_OK) {
++		utool_err_msg("Failed to execute cmd, ret = %d.\n", ret);
++		goto free_pkt_out;
++	}
++
++	if (out->data_size == 0) {
++		goto free_pkt_out;
++	}
++
++	memcpy(out->data, rpc_out->data, out->data_size);
++
++free_pkt_out:
++	UTOOL_FREE(rpc_out);
++free_pkt_in:
++	UTOOL_FREE(rpc_in);
++close_dev:
++	utool_close(&dev);
++
++	return ret;
++}
+-- 
+2.50.1 (Apple Git-155)
+
