@@ -1,0 +1,1104 @@
+From c93ad194f86c5253a7f553265e77c549b03eed28 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Fri, 15 May 2026 16:13:48 +0800
+Subject: [PATCH 4/8] ub:ubctl:Add the debugfs function.
+
+tool inclusion
+category: feature
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/21
+CVE: NA
+
+--------------------------------------------------------------------------
+
+ubctl add the debugfs function for support querying devices, file and
+file content.
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ u_utool_common.h   |   8 +
+ u_utool_debugfs.c  | 683 +++++++++++++++++++++++++++++++++++++++++++++
+ u_utool_debugfs.h  |  81 ++++++
+ u_utool_dispatch.c | 144 +++++++++-
+ u_utool_main.c     |   9 +-
+ 5 files changed, 922 insertions(+), 3 deletions(-)
+ create mode 100644 u_utool_debugfs.c
+ create mode 100644 u_utool_debugfs.h
+
+diff --git a/u_utool_common.h b/u_utool_common.h
+index 0352839..fd5530b 100644
+--- a/u_utool_common.h
++++ b/u_utool_common.h
+@@ -21,6 +21,7 @@
+ #define UTOOL_VERSION 0
+ 
+ #define UBCTL_ARG_MAX_LEN 20
++#define UBCTL_FILE_NAME_MAX_LEN 128
+ #define UTOOL_LINE_BUF_LEN 300
+ #define UTOOL_DEV_NAME_LEN_MAX 512
+ #define UTOOL_DEV_CHIP_DIE_ID_MAX (1U << 16)
+@@ -40,6 +41,9 @@
+ #define UTOOL_FLAG_I UTOOL_BIT(4) /* -i */
+ #define UTOOL_FLAG_T UTOOL_BIT(5) /* -t */
+ #define UTOOL_FLAG_U UTOOL_BIT(6) /* -u */
++#define UTOOL_FLAG_DEV UTOOL_BIT(7) /* -dev */
++#define UTOOL_FLAG_FILE UTOOL_BIT(8) /* -file */
++#define UTOOL_FLAG_LS UTOOL_BIT(9) /* ls */
+ 
+ #define UTOOL_MALLOC(length) malloc(length)
+ #define UTOOL_FREE(x)			\
+@@ -77,6 +81,7 @@ do {					\
+ #define UTOOL_MODULE_ECC_2B "ecc_2b"
+ #define UTOOL_MODULE_UBOE "uboe"
+ #define UTOOL_MODULE_UMMU "ummu"
++#define UTOOL_MODULE_DEBUGFS "debugfs"
+ #define UTOOL_MODULE_MSGQ "msgq"
+ #define UTOOL_MODULE_QUEUE "queue"
+ #define UTOOL_MODULE_DUMP "dump"
+@@ -96,6 +101,7 @@ enum utool_module_name {
+ 	UTOOL_MODULE_NAME_ECC_2B,
+ 	UTOOL_MODULE_NAME_UBOE,
+ 	UTOOL_MODULE_NAME_UMMU,
++	UTOOL_MODULE_NAME_DEBUGFS,
+ 	UTOOL_MODULE_NAME_MSGQ,
+ 	UTOOL_MODULE_NAME_QUEUE,
+ 	UTOOL_MODULE_NAME_FIRMWARE_VERSION,
+@@ -159,6 +165,8 @@ struct utool_cmd_param {
+ 	uint32_t ummu_id;
+ 	char func[UBCTL_ARG_MAX_LEN];
+ 	char module[UBCTL_ARG_MAX_LEN];
++	char device[UBCTL_ARG_MAX_LEN];
++	char file[UBCTL_FILE_NAME_MAX_LEN];
+ };
+ 
+ struct utool_module_dispatch {
+diff --git a/u_utool_debugfs.c b/u_utool_debugfs.c
+new file mode 100644
+index 0000000..4ef3717
+--- /dev/null
++++ b/u_utool_debugfs.c
+@@ -0,0 +1,683 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Copyright (c) 2025 HiSilicon Technologies Co., Ltd. All rights reserved.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
++ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
++ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
++ */
++
++#include <ctype.h>
++#include <errno.h>
++#include <dirent.h>
++#include <unistd.h>
++#include <sys/stat.h>
++#include <libgen.h>
++
++#include "u_utool_error.h"
++#include "u_utool_pkt.h"
++#include "u_utool_debugfs.h"
++
++#define UBCTL_BUS_NUM_LEN 6
++#define UBCTL_DEV_CNT_MAX 100
++#define UBCTL_PATH_LEN_MAX 100
++#define UBCTL_CMD_LEN_MAX 300
++#define UBCTL_DEBUGFS_PATH "/sys/kernel/debug/ubase/%s"
++#define UBCTL_DEBUGFS_PATH_LEN 30
++#define UBCTL_BUFFER_LEN_MAX 2048
++#define UBCTL_MATCH_NUM 2
++
++static bool g_utool_has_catted_file = false;
++
++struct utool_device_info {
++	char bus_num[UBCTL_BUS_NUM_LEN];
++	char device_name[UBCTL_ARG_MAX_LEN];
++	char port_name[UBCTL_ARG_MAX_LEN];
++	char device_id[UBCTL_ARG_MAX_LEN];
++	char device_type[UBCTL_ARG_MAX_LEN];
++};
++
++struct utool_device_info g_utool_debugfs_devices[UBCTL_DEV_CNT_MAX];
++uint32_t g_utool_debugfs_device_cnt = 0;
++
++struct utool_dir_entry {
++	char path[UBCTL_PATH_LEN_MAX];
++	struct list_head list;
++};
++
++struct utool_traverse_params {
++	char *file;
++	char *bus_num;
++	int (*callback)(char*, char*);
++	struct list_head visited_paths;
++	struct list_head dir_list;
++};
++
++static int utool_get_bus_num_by_device_name(char *device_name, char *bus_num)
++{
++	char search_file[UBCTL_PATH_LEN_MAX];
++	char letters[UBCTL_ARG_MAX_LEN];
++	char digits[UBCTL_ARG_MAX_LEN];
++	char path[UBCTL_PATH_LEN_MAX];
++	struct dirent *entry;
++	DIR *dir;
++	int ret;
++
++	if (!device_name || !bus_num) {
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if (sscanf(device_name, "%[^0-9]%[0-9]", letters, digits) != UBCTL_MATCH_NUM) {
++		utool_err_msg("Failed to sscanf device name(%s)\n", device_name);
++		return UTOOL_ERR;
++	}
++	ret = snprintf(search_file, sizeof(search_file), "ubase.%s.%s", letters, digits);
++	if (ret <= 0 || ret >= UBCTL_PATH_LEN_MAX) {
++		utool_err_msg("Failed to format search file, ret = %d.\n", ret);
++		return UTOOL_ERR;
++	}
++
++	dir = opendir("/sys/bus/ub/devices");
++	if (dir == NULL) {
++		utool_err_msg("Failed to open directory, error: %s\n", strerror(errno));
++		return UTOOL_ERR_INVALID_CMD;
++	}
++
++	while ((entry = readdir(dir)) != NULL) {
++		ret = snprintf(path, sizeof(path), "/sys/bus/ub/devices/%s/%s", entry->d_name, search_file);
++		if (ret <= 0 || ret >= UBCTL_PATH_LEN_MAX) {
++			utool_err_msg("Failed to format path, ret = %d.\n", ret);
++			goto printf_err;
++		}
++		if (access(path, F_OK) != -1) {
++			ret = snprintf(bus_num, UBCTL_BUS_NUM_LEN, "%s", entry->d_name);
++			if (ret <= 0 || ret >= UBCTL_BUS_NUM_LEN) {
++				utool_err_msg("Failed to copy file name, ret = %d.\n", ret);
++				goto printf_err;
++			}
++			closedir(dir);
++			return UTOOL_OK;
++		}
++	}
++
++	utool_err_msg("Failed to get bus number from %s.\n", device_name);
++printf_err:
++	closedir(dir);
++	return UTOOL_ERR;
++}
++
++static int utool_get_bus_num_by_port_name(char *port_name, char *bus_num)
++{
++	char buffer[UBCTL_BUFFER_LEN_MAX];
++	char cmd[UBCTL_CMD_LEN_MAX];
++	FILE *ethtool_fp;
++	int ret;
++
++	if (!port_name || !bus_num) {
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	ret = snprintf(cmd, sizeof(cmd), "ethtool -i %s 2>/dev/null | grep 'bus-info:' | awk -F': ' '{print $2}'",
++		       port_name);
++	if (ret <= 0 || ret >= UBCTL_CMD_LEN_MAX) {
++		utool_err_msg("Failed to format ethtool cmd, ret = %d.\n", ret);
++		return UTOOL_ERR;
++	}
++
++	ethtool_fp = popen(cmd, "r");
++	if (ethtool_fp == NULL) {
++		utool_err_msg("Failed to execute ethtool cmd, error:%s.\n", strerror(errno));
++		return UTOOL_ERR_INVALID_CMD;
++	}
++
++	if (fgets(buffer, sizeof(buffer), ethtool_fp) != NULL) {
++		buffer[strcspn(buffer, "\n")] = 0;
++		ret = snprintf(bus_num, UBCTL_BUS_NUM_LEN, "%s", buffer);
++		if (ret <= 0 || ret >= UBCTL_BUS_NUM_LEN) {
++			utool_err_msg("Failed to copy buffer, ret = %d.\n", ret);
++			goto printf_err;
++		}
++		pclose(ethtool_fp);
++		return UTOOL_OK;
++	}
++
++	utool_err_msg("Failed to get bus number from %s.\n", port_name);
++printf_err:
++	pclose(ethtool_fp);
++	return UTOOL_ERR;
++}
++
++static int utool_get_device_info(void)
++{
++	const char *commands[] = {"lsub 2>/dev/null", "/var/lsub 2>/dev/null"};
++	char buffer[UBCTL_BUFFER_LEN_MAX];
++	bool success = false;
++	FILE *fp;
++
++	for (size_t i = 0; i < UTOOL_ARRAY_SIZE(commands); ++i) {
++		fp = popen(commands[i], "r");
++		if (fp == NULL) {
++			continue;
++		}
++		if (fgets(buffer, sizeof(buffer), fp) != NULL) {
++			success = true;
++			break;
++		}
++		pclose(fp);
++	}
++
++	if (!success) {
++		if (fp) {
++			pclose(fp);
++		}
++		utool_err_msg("Failed to get lsub info.\n");
++		return UTOOL_ERR_CMD_NOT_FOUND;
++	}
++
++	do {
++		if (sscanf(buffer, "<%5[^>]>%*[^<]<%*[^<]<%*[^<]<%4[^>]>",
++			   g_utool_debugfs_devices[g_utool_debugfs_device_cnt].bus_num,
++			   g_utool_debugfs_devices[g_utool_debugfs_device_cnt].device_id) == UBCTL_MATCH_NUM) {
++			g_utool_debugfs_device_cnt++;
++		}
++	} while (fgets(buffer, sizeof(buffer), fp) != NULL && g_utool_debugfs_device_cnt < UBCTL_DEV_CNT_MAX);
++
++	pclose(fp);
++	return UTOOL_OK;
++}
++
++static int utool_get_port_names(void)
++{
++	char buffer[UBCTL_BUFFER_LEN_MAX];
++	char bus_num[UBCTL_BUS_NUM_LEN];
++	uint32_t i;
++	FILE *fp;
++	int ret;
++
++	fp = popen("ip a | grep -E '^[a-zA-Z0-9]+:' | awk -F ':' '{print$2}' | grep -v -E 'eth0|lo'", "r");
++	if (!fp) {
++		utool_err_msg("Failed to execute ip a command: %s\n", strerror(errno));
++		return UTOOL_ERR_INVALID_CMD;
++	}
++
++	while (fgets(buffer, sizeof(buffer), fp) != NULL) {
++		buffer[strcspn(buffer, "\n")] = 0;
++		if (utool_get_bus_num_by_port_name(buffer, bus_num) != UTOOL_OK) {
++			continue;
++		}
++		for (i = 0; i < g_utool_debugfs_device_cnt; i++) {
++			if (strcmp(g_utool_debugfs_devices[i].bus_num, bus_num) == 0) {
++				ret = snprintf(g_utool_debugfs_devices[i].port_name, UBCTL_ARG_MAX_LEN, "%s", buffer);
++				if (ret <= 0 || ret >= UBCTL_ARG_MAX_LEN) {
++					utool_err_msg("Failed to copy buffer, ret = %d.\n", ret);
++					pclose(fp);
++					return UTOOL_ERR;
++				}
++				break;
++			}
++		}
++	}
++
++	pclose(fp);
++	return UTOOL_OK;
++}
++
++static void utool_get_device_name_by_ubus_num(char *ubus_num, char *device_name)
++{
++	char buffer[UBCTL_BUFFER_LEN_MAX];
++	char letters[UBCTL_ARG_MAX_LEN];
++	char digits[UBCTL_ARG_MAX_LEN];
++	char cmd[UBCTL_CMD_LEN_MAX];
++	FILE *fp;
++	int ret;
++
++	if (!ubus_num || !device_name) {
++		return;
++	}
++
++	ret = snprintf(cmd, sizeof(cmd), "ls /sys/bus/ub/devices/%s | grep '^ubase.' | head -n 1", ubus_num);
++	if (ret <= 0 || ret >= UBCTL_CMD_LEN_MAX) {
++		utool_err_msg("Failed to format ls cmd, ret = %d.\n", ret);
++		return;
++	}
++
++	fp = popen(cmd, "r");
++	if (fp == NULL) {
++		utool_err_msg("Failed to popen.\n");
++		return;
++	}
++
++	if (fgets(buffer, sizeof(buffer), fp) != NULL) {
++		buffer[strcspn(buffer, "\n")] = '\0';
++		if (sscanf(buffer, "ubase.%[a-zA-Z].%[0-9]", letters, digits) == UBCTL_MATCH_NUM) {
++			ret = snprintf(device_name, UBCTL_ARG_MAX_LEN, "%s%s", letters, digits);
++			if (ret <= 0 || ret >= UBCTL_ARG_MAX_LEN) {
++				utool_err_msg("Failed to format device name, ret = %d.\n", ret);
++				pclose(fp);
++				return;
++			}
++		}
++	}
++
++	pclose(fp);
++}
++
++static int utool_get_device_type(char *device_id, char *device_type)
++{
++#define UBCTL_TYPE_UNKNOWN "Unknown"
++#define UBCTL_DEVICE_ID_NUM 28
++	static struct utool_device_mapping {
++		const char *device_id;
++		const char *device_type;
++	} utool_device_mapping_table[UBCTL_DEVICE_ID_NUM] = {
++		{ "a001", "urma mue" }, { "a002", "urma ue" },
++		{ "a003", "cdma mue" }, { "a004", "cdma ue" },
++		{ "a005", "pmu mue" }, { "a006", "pmu ue" },
++		{ "a00b", "urma mue" }, { "a00c", "urma ue" },
++		{ "a00d", "cdma mue" }, { "a00e", "cdma ue" },
++		{ "a00f", "pmu mue" }, { "a010", "pmu ue" },
++		{ "d802", "urma mue" }, { "d803", "urma ue" },
++		{ "d804", "cdma mue" }, { "d805", "cdma ue" },
++		{ "d806", "pmu mue" }, { "d807", "pmu ue" },
++		{ "d80b", "uboe mue" }, { "d80c", "uboe ue" },
++		{ "d812", "urma mue" }, { "d813", "urma ue" },
++		{ "d814", "cdma mue" }, { "d815", "cdma ue" },
++		{ "d816", "pmu mue" }, { "d817", "pmu ue" },
++		{ "d81b", "uboe mue" }, { "d81c", "uboe ue"}
++	};
++	int i, ret;
++
++	if (!device_type) {
++		utool_err_msg("device type is NULL.\n");
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	for (i = 0; i < UBCTL_DEVICE_ID_NUM; i++) {
++		if (strcmp(utool_device_mapping_table[i].device_id, device_id) == 0) {
++			ret = snprintf(device_type, UBCTL_ARG_MAX_LEN, "%s", utool_device_mapping_table[i].device_type);
++			if (ret <= 0 || ret >= UBCTL_ARG_MAX_LEN) {
++				utool_err_msg("Failed to copy device type, ret = %d.\n", ret);
++				return UTOOL_ERR;
++			}
++			return UTOOL_OK;
++		}
++	}
++
++	ret = snprintf(device_type, UBCTL_ARG_MAX_LEN, "%s", UBCTL_TYPE_UNKNOWN);
++	if (ret <= 0 || ret >= UBCTL_ARG_MAX_LEN) {
++		utool_err_msg("Failed to copy device type, ret = %d.\n", ret);
++	}
++	return UTOOL_ERR;
++}
++
++static void utool_print_help(void)
++{
++	utool_err_msg("The ubctl dev command must be in the following formats:\n"
++		      "ubctl -m debugfs ls\n"
++		      "ubctl -m debugfs -dev [bus_num / device_name / netdev_name]\n"
++		      "ubctl -m debugfs -dev [bus_num / device_name / netdev_name] -file [file_name]\n");
++}
++
++static int utool_debugfs_cmd_ls(void)
++{
++	uint32_t i;
++
++	if (utool_get_device_info() != UTOOL_OK) {
++		utool_err_msg("Failed to get device information.\n");
++		return UTOOL_ERR;
++	}
++
++	if (utool_get_port_names() != UTOOL_OK) {
++		utool_err_msg("Failed to get port names.\n");
++		return UTOOL_ERR;
++	}
++
++	utool_reg_msg("Bus Num  Device Name  Netdev Name  Device ID  Device Type\n");
++	for (i = 0; i < g_utool_debugfs_device_cnt; i++) {
++		utool_get_device_name_by_ubus_num(g_utool_debugfs_devices[i].bus_num,
++						  g_utool_debugfs_devices[i].device_name);
++		if (utool_get_device_type(g_utool_debugfs_devices[i].device_id,
++					  g_utool_debugfs_devices[i].device_type) != UTOOL_OK) {
++			continue;
++		}
++		utool_reg_msg("%-9s%-12s%-14s0x%-9s%-11s\n",
++			      g_utool_debugfs_devices[i].bus_num, g_utool_debugfs_devices[i].device_name,
++			      g_utool_debugfs_devices[i].port_name, g_utool_debugfs_devices[i].device_id,
++			      g_utool_debugfs_devices[i].device_type);
++	}
++
++	return UTOOL_OK;
++}
++
++static bool utool_debugfs_is_path_visited(struct list_head *visited_paths, char *path)
++{
++	struct utool_dir_entry *entry;
++
++	list_for_each_entry(entry, visited_paths, list) {
++		if (strcmp(entry->path, path) == 0) {
++			return true;
++		}
++	}
++	return false;
++}
++
++static int utool_debugfs_cmd_path(char *file, char *file_path)
++{
++	char *relative_path = file_path + UBCTL_DEBUGFS_PATH_LEN;
++	char debugfs_path[UBCTL_DEBUGFS_PATH_LEN];
++	static bool have_printed_path = false;
++
++	UTOOL_SET_USED(file);
++
++	if (!have_printed_path) {
++		if (snprintf(debugfs_path, UBCTL_DEBUGFS_PATH_LEN, "%s", file_path) <= 0) {
++			utool_err_msg("Failed to copy debugfs dir path.\n");
++			return UTOOL_ERR;
++		}
++		utool_reg_msg("debugfs dir path:\n\t%s\ndebugfs file list:\n", debugfs_path);
++		have_printed_path = true;
++	}
++
++	if (*relative_path == '/') {
++		relative_path++;
++	}
++
++	utool_reg_msg("\t%s\n", relative_path);
++	return UTOOL_OK;
++}
++
++static int utool_debugfs_cmd_file(char *file, char *file_path)
++{
++	char cmd[UBCTL_CMD_LEN_MAX];
++	int ret;
++
++	if (!file || !file_path) {
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if (strcmp(basename(file_path), file) == 0) {
++		if (g_utool_has_catted_file) {
++			utool_reg_msg("\n");
++		}
++		utool_reg_msg("%s:\n", file_path);
++
++		ret = snprintf(cmd, sizeof(cmd), "cat %s", file_path);
++		if (ret <= 0 || ret >= UBCTL_CMD_LEN_MAX) {
++			utool_err_msg("Failed to format cat cmd, ret = %d.\n", ret);
++			return UTOOL_ERR;
++		}
++
++		if (system(cmd) != 0) {
++			utool_err_msg("Failed to execute command.\n");
++			return UTOOL_ERR;
++		}
++		g_utool_has_catted_file = true;
++	}
++	return UTOOL_OK;
++}
++
++static int utool_debugfs_process_directory(struct utool_traverse_params *params, char *debugfs_path)
++{
++	struct utool_dir_entry *utool_dir_entry_node;
++	int ret;
++
++	utool_dir_entry_node = (struct utool_dir_entry *)UTOOL_MALLOC(sizeof(struct utool_dir_entry));
++	if (!utool_dir_entry_node) {
++		utool_err_msg("Failed to allocate memory.\n");
++		return UTOOL_ERR;
++	}
++
++	ret = snprintf(utool_dir_entry_node->path, UBCTL_DEBUGFS_PATH_LEN, "%s", debugfs_path);
++	if (ret <= 0 || ret >= UBCTL_DEBUGFS_PATH_LEN) {
++		utool_err_msg("Failed to copy entry node path, ret = %d.\n", ret);
++		UTOOL_FREE(utool_dir_entry_node);
++		return UTOOL_ERR;
++	}
++	list_add(&utool_dir_entry_node->list, &params->dir_list);
++
++	return UTOOL_OK;
++}
++
++static int utool_debugfs_traverse_init(struct utool_traverse_params *params, char *file, char *bus_num,
++				       int (*callback)(char*, char*))
++{
++	params->file = file;
++	params->bus_num = bus_num;
++	params->callback = callback;
++
++	INIT_LIST_HEAD(&params->visited_paths);
++	INIT_LIST_HEAD(&params->dir_list);
++
++	return UTOOL_OK;
++}
++
++static int utool_process_directory_entry(struct utool_traverse_params *params, char *path)
++{
++	struct utool_dir_entry *new_utool_dir_entry;
++	char new_path[UBCTL_PATH_LEN_MAX];
++	struct dirent *d_entry;
++	struct stat st;
++	DIR *dir;
++	int ret;
++
++	dir = opendir(path);
++	if (!dir) {
++		utool_err_msg("Path: %s is not exist.\n", path);
++		return UTOOL_ERR;
++	}
++
++	while ((d_entry = readdir(dir)) != NULL) {
++		if (strcmp(d_entry->d_name, ".") == 0 || strcmp(d_entry->d_name, "..") == 0) {
++			continue;
++		}
++
++		ret = snprintf(new_path, sizeof(new_path), "%s/%s", path, d_entry->d_name);
++		if (ret <= 0 || ret >= UBCTL_PATH_LEN_MAX) {
++			utool_err_msg("Failed to format new path, ret = %d.\n", ret);
++			closedir(dir);
++			return UTOOL_ERR;
++		}
++
++		if (stat(new_path, &st) == -1) {
++			utool_err_msg("Failed to stat file.\n");
++			closedir(dir);
++			return UTOOL_ERR;
++		}
++
++		if (S_ISDIR(st.st_mode)) {
++			new_utool_dir_entry = (struct utool_dir_entry *)UTOOL_MALLOC(sizeof(struct utool_dir_entry));
++			if (!new_utool_dir_entry) {
++				utool_err_msg("Failed to allocate memory.\n");
++				closedir(dir);
++				return UTOOL_ERR;
++			}
++			ret = snprintf(new_utool_dir_entry->path, UBCTL_PATH_LEN_MAX, "%s", new_path);
++			if (ret <= 0 || ret >= UBCTL_PATH_LEN_MAX) {
++				utool_err_msg("Failed to copy new path, ret = %d.\n", ret);
++				closedir(dir);
++				return UTOOL_ERR;
++			}
++			new_utool_dir_entry->path[UBCTL_PATH_LEN_MAX - 1] = '\0';
++			list_add_tail(&new_utool_dir_entry->list, &params->dir_list);
++		} else {
++			if (params->callback(params->file, new_path) != UTOOL_OK) {
++				closedir(dir);
++				return UTOOL_ERR;
++			}
++		}
++	}
++
++	closedir(dir);
++	return UTOOL_OK;
++}
++
++static int utool_mark_path_as_visited(struct utool_traverse_params *params, char *path)
++{
++	struct utool_dir_entry *visited_entry;
++	int ret;
++
++	if (utool_debugfs_is_path_visited(&params->visited_paths, path)) {
++		utool_err_msg("Skipping already visited path: %s\n", path);
++		return UTOOL_ERR;
++	}
++
++	visited_entry = (struct utool_dir_entry *)UTOOL_MALLOC(sizeof(struct utool_dir_entry));
++	if (!visited_entry) {
++		utool_err_msg("Failed to allocate memory for visited path.\n");
++		return UTOOL_ERR;
++	}
++	ret = snprintf(visited_entry->path, UBCTL_PATH_LEN_MAX, "%s", path);
++	if (ret <= 0 || ret >= UBCTL_PATH_LEN_MAX) {
++		utool_err_msg("Failed to copy visited entry path, ret = %d.\n", ret);
++		UTOOL_FREE(visited_entry);
++		return UTOOL_ERR;
++	}
++	list_add(&visited_entry->list, &params->visited_paths);
++
++	return UTOOL_OK;
++}
++
++static int utool_debugfs_traverse(struct utool_traverse_params *params)
++{
++	struct utool_dir_entry *utool_dir_entry_node;
++
++	while (!list_empty(&params->dir_list)) {
++		utool_dir_entry_node = list_first_entry(&params->dir_list, struct utool_dir_entry, list);
++		list_del(&utool_dir_entry_node->list);
++
++		if (utool_mark_path_as_visited(params, utool_dir_entry_node->path) != UTOOL_OK) {
++			UTOOL_FREE(utool_dir_entry_node);
++			continue;
++		}
++
++		if (utool_process_directory_entry(params, utool_dir_entry_node->path) != UTOOL_OK) {
++			UTOOL_FREE(utool_dir_entry_node);
++			return UTOOL_ERR;
++		}
++
++		UTOOL_FREE(utool_dir_entry_node);
++	}
++
++	if ((params->callback == utool_debugfs_cmd_file) && (!g_utool_has_catted_file)) {
++		utool_err_msg("The file %s is not found.\n", params->file);
++		return UTOOL_ERR;
++	}
++
++	return UTOOL_OK;
++}
++
++static void utool_debugfs_cleanup(struct utool_traverse_params *params)
++{
++	struct utool_dir_entry *entry, *tmp;
++
++	list_for_each_entry_safe(entry, tmp, &params->visited_paths, list) {
++		list_del(&entry->list);
++		UTOOL_FREE(entry);
++	}
++
++	list_for_each_entry_safe(entry, tmp, &params->dir_list, list) {
++		list_del(&entry->list);
++		UTOOL_FREE(entry);
++	}
++}
++
++static int utool_debugfs_cmd_traverse(char *file, char *bus_num, int (*callback)(char*, char*))
++{
++	char debugfs_path[UBCTL_DEBUGFS_PATH_LEN];
++	struct utool_traverse_params params;
++	int ret;
++
++	ret = snprintf(debugfs_path, UBCTL_DEBUGFS_PATH_LEN, UBCTL_DEBUGFS_PATH, bus_num);
++	if (ret <= 0 || ret >= UBCTL_DEBUGFS_PATH_LEN) {
++		utool_err_msg("Failed to format debugfs path, ret = %d.\n", ret);
++		return UTOOL_ERR;
++	}
++
++	ret = utool_debugfs_traverse_init(&params, file, bus_num, callback);
++	if (ret != UTOOL_OK) {
++		utool_err_msg("Failed to init traverse.\n");
++		goto cleanup;
++	}
++
++	ret = utool_debugfs_process_directory(&params, debugfs_path);
++	if (ret != UTOOL_OK) {
++		utool_err_msg("Failed to process directory.\n");
++		goto cleanup;
++	}
++
++	ret = utool_debugfs_traverse(&params);
++	if (ret != UTOOL_OK) {
++		utool_err_msg("Failed to traverse.\n");
++	}
++
++cleanup:
++	utool_debugfs_cleanup(&params);
++	return ret;
++}
++
++static int utool_debugfs_cmd(struct utool_cmd_param *param, int (*cmd_exe)(char*, char *))
++{
++	char bus_num[UBCTL_BUS_NUM_LEN] = {0};
++	int ret = UTOOL_OK;
++
++	if (strncmp(param->device, "ub", strlen("ub")) == 0 || strncmp(param->device, "eth", strlen("eth")) == 0) {
++		ret = utool_get_bus_num_by_port_name(param->device, bus_num);
++		if (ret != UTOOL_OK) {
++			return ret;
++		}
++	} else if (isdigit(param->device[0])) {
++		if (strlen(param->device) != UBCTL_BUS_NUM_LEN - 1) {
++			utool_err_msg("Length of bus num is invalid, expected %d, got %zu.\n",
++				      UBCTL_BUS_NUM_LEN - 1, strlen(param->device));
++			return UTOOL_ERR;
++		}
++
++		ret = snprintf(bus_num, UBCTL_BUS_NUM_LEN, "%s", param->device);
++		if (ret <= 0 || ret >= UBCTL_BUS_NUM_LEN) {
++			utool_err_msg("Failed to copy device, ret = %d.\n", ret);
++		return UTOOL_ERR;
++		}
++	} else {
++		ret = utool_get_bus_num_by_device_name(param->device, bus_num);
++		if (ret != UTOOL_OK) {
++			return ret;
++		}
++	}
++
++	return utool_debugfs_cmd_traverse(param->file, bus_num, cmd_exe);
++}
++
++int utool_debugfs_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param)
++{
++	struct {
++		uint32_t flags;
++		int (*execute)(char *file, char *file_path);
++	} utool_debugfs_cmd_table[] = {
++		{ UTOOL_FLAG_M | UTOOL_FLAG_DEV, utool_debugfs_cmd_path },
++		{ UTOOL_FLAG_M | UTOOL_FLAG_DEV | UTOOL_FLAG_FILE, utool_debugfs_cmd_file }
++	};
++	uint32_t table_cnt = UTOOL_ARRAY_SIZE(utool_debugfs_cmd_table);
++	uint32_t i;
++
++	UTOOL_SET_USED(dev);
++	if (!param) {
++		utool_err_msg("Param is null.\n");
++		return UTOOL_ERR_INVALID_PARAM;
++	}
++
++	if (param->flags == (UTOOL_FLAG_M | UTOOL_FLAG_LS)) {
++		return utool_debugfs_cmd_ls();
++	}
++
++	for (i = 0; i < table_cnt; i++) {
++		if (param->flags == utool_debugfs_cmd_table[i].flags) {
++			if (utool_debugfs_cmd_table[i].execute == NULL) {
++				utool_err_msg("Failed to dispatch. Callback is NULL.\n");
++				return UTOOL_ERR_INVALID_PARAM;
++			}
++			return utool_debugfs_cmd(param, utool_debugfs_cmd_table[i].execute);
++		}
++	}
++
++	utool_print_help();
++	return UTOOL_ERR_CMD_NOT_FOUND;
++}
+diff --git a/u_utool_debugfs.h b/u_utool_debugfs.h
+new file mode 100644
+index 0000000..d394ccb
+--- /dev/null
++++ b/u_utool_debugfs.h
+@@ -0,0 +1,81 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * Copyright (c) 2025 HiSilicon Technologies Co., Ltd. All rights reserved.
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
++ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
++ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
++ */
++
++#ifndef __U_UTOOL_DEBUGFS_H__
++#define __U_UTOOL_DEBUGFS_H__
++
++#include "u_utool_fwctl.h"
++#include "u_utool_common.h"
++
++
++struct list_head {
++	struct list_head *next, *prev;
++};
++
++static inline void __list_add(struct list_head *tmp,
++			      struct list_head *prev,
++			      struct list_head *next)
++{
++	next->prev = tmp;
++	tmp->next = next;
++	tmp->prev = prev;
++	prev->next = tmp;
++}
++
++static inline void list_add(struct list_head *tmp, struct list_head *head)
++{
++	__list_add(tmp, head, head->next);
++}
++
++static inline void list_add_tail(struct list_head *tmp, struct list_head *head)
++{
++	__list_add(tmp, head->prev, head);
++}
++
++static inline void INIT_LIST_HEAD(struct list_head *list)
++{
++	list->next = list;
++	list->prev = list;
++}
++
++static inline int list_empty(const struct list_head *head)
++{
++	return head->next == head;
++}
++
++static inline void list_del(struct list_head *entry)
++{
++	entry->next->prev = entry->prev;
++	entry->prev->next = entry->next;
++	entry->next = NULL;
++	entry->prev = NULL;
++}
++
++#define list_entry(LINK, TYPE, MEMBER) \
++	((TYPE *)((char *)(LINK)-(uint64_t)(&((TYPE *)0)->MEMBER)))
++
++#define list_first_entry(PTR, TYPE, MEMBER) \
++	list_entry((PTR)->next, TYPE, MEMBER)
++
++#define list_next_entry(pos, member) \
++	list_entry((pos)->member.next, typeof(*(pos)), member)
++
++#define list_for_each_entry(POS, HEAD, MEMBER)				\
++	for ((POS) = list_first_entry(HEAD, typeof(*(POS)), MEMBER);	\
++	     &(POS)->MEMBER != (HEAD);					\
++	     (POS) = list_next_entry(POS, MEMBER))
++
++#define list_for_each_entry_safe(pos, n, head, member)			\
++	for (pos = list_entry((head)->next, typeof(*pos), member),	\
++	     n = list_entry(pos->member.next, typeof(*pos), member);	\
++	     &pos->member != (head);					\
++	     pos = n, n = list_entry(n->member.next, typeof(*n), member))
++
++int utool_debugfs_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
++
++#endif
+diff --git a/u_utool_dispatch.c b/u_utool_dispatch.c
+index ce60a64..1161ab3 100644
+--- a/u_utool_dispatch.c
++++ b/u_utool_dispatch.c
+@@ -20,6 +20,7 @@
+ #include "u_utool_ubommu.h"
+ #include "u_utool_ecc_2b.h"
+ #include "u_utool_uboe.h"
++#include "u_utool_debugfs.h"
+ #include "u_utool_ummu.h"
+ #include "u_utool_msg.h"
+ #include "u_utool_queue.h"
+@@ -35,6 +36,11 @@ static struct utool_cmd_param g_utool_cmd_param = {};
+ static bool g_utool_cmd_chip_id_init = false;
+ static bool g_utool_cmd_die_id_init = false;
+ 
++struct ubctl_multi_char_option_info {
++	const char *name;
++	bool requires_arg;
++};
++
+ static struct utool_module_dispatch g_utool_cmd_table[] = {
+ 	{ UTOOL_MODULE_DL, UTOOL_MODULE_NAME_DL, utool_dl_cmd_dispatch },
+ 	{ UTOOL_MODULE_NL, UTOOL_MODULE_NAME_NL, utool_nl_cmd_dispatch },
+@@ -47,6 +53,7 @@ static struct utool_module_dispatch g_utool_cmd_table[] = {
+ 	{ UTOOL_MODULE_ECC_2B, UTOOL_MODULE_NAME_ECC_2B, utool_ecc_2b_cmd_dispatch },
+ 	{ UTOOL_MODULE_UBOE, UTOOL_MODULE_NAME_UBOE, utool_uboe_cmd_dispatch },
+ 	{ UTOOL_MODULE_UMMU, UTOOL_MODULE_NAME_UMMU, utool_ummu_cmd_dispatch },
++	{ UTOOL_MODULE_DEBUGFS, UTOOL_MODULE_NAME_DEBUGFS, utool_debugfs_cmd_dispatch },
+ 	{ UTOOL_MODULE_MSGQ, UTOOL_MODULE_NAME_MSGQ, utool_msgq_cmd_dispatch },
+ 	{ UTOOL_MODULE_QUEUE, UTOOL_MODULE_NAME_QUEUE, utool_queue_cmd_dispatch },
+ 	{ UTOOL_MODULE_FIRMWARE_VERSION, UTOOL_MODULE_NAME_FIRMWARE_VERSION, utool_fw_version_cmd_dispatch },
+@@ -101,6 +108,7 @@ int utool_transform_str(char *param, uint32_t *value)
+ 		return UTOOL_ERR_INVALID_CMD;
+ 	}
+ 	if (conv_value > UINT32_MAX) {
++		utool_err_msg("Value is bigger than max u32 num");
+ 		return UTOOL_ERR_INVALID_CMD;
+ 	}
+ 	*value = (uint32_t)conv_value;
+@@ -138,6 +146,38 @@ static int utool_cmd_select_func(char *param)
+ 	return ret;
+ }
+ 
++static int utool_cmd_select_dev(char *param)
++{
++	g_utool_cmd_param.flags |= UTOOL_FLAG_DEV;
++
++	if (strlen(param) >= sizeof(g_utool_cmd_param.device)) {
++		utool_err_msg("Device name(%s) is too long, it must be less than %ubytes.\n",
++			      param, UBCTL_ARG_MAX_LEN);
++		return UTOOL_ERR_INVALID_CMD;
++	}
++
++	strncpy(g_utool_cmd_param.device, param, sizeof(g_utool_cmd_param.device) - 1);
++	g_utool_cmd_param.device[sizeof(g_utool_cmd_param.device) - 1] = '\0';
++
++	return UTOOL_OK;
++}
++
++static int utool_cmd_select_file(char *param)
++{
++	g_utool_cmd_param.flags |= UTOOL_FLAG_FILE;
++
++	if (strlen(param) >= sizeof(g_utool_cmd_param.file)) {
++		utool_err_msg("File name(%s) is too long, it must be less than %ubytes.\n",
++			      param, UBCTL_FILE_NAME_MAX_LEN);
++		return UTOOL_ERR_INVALID_CMD;
++	}
++
++	strncpy(g_utool_cmd_param.file, param, sizeof(g_utool_cmd_param.file) - 1);
++	g_utool_cmd_param.file[sizeof(g_utool_cmd_param.file) - 1] = '\0';
++
++	return UTOOL_OK;
++}
++
+ static int utool_cmd_select_die_id(char *param)
+ {
+ 	int ret = UTOOL_OK;
+@@ -237,7 +277,8 @@ static int utool_check_param(void)
+ 		return UTOOL_ERR_CMD_NOT_FOUND;
+ 	}
+ 
+-	if (g_utool_cmd_param.module_id == (uint32_t)UTOOL_MODULE_NAME_UMMU) {
++	if ((g_utool_cmd_param.module_id == (uint32_t)UTOOL_MODULE_NAME_UMMU) ||
++	    (g_utool_cmd_param.module_id == (uint32_t)UTOOL_MODULE_NAME_DEBUGFS)) {
+ 		return UTOOL_OK;
+ 	}
+ 
+@@ -258,6 +299,103 @@ static void utool_param_init(void)
+ 	g_utool_cmd_die_id_init = false;
+ }
+ 
++static int utool_process_double_option(const char *option, char *arg)
++{
++	if (strcmp(option, "-dev") == 0) {
++		return utool_cmd_select_dev(arg);
++	}
++	if (strcmp(option, "-file") == 0) {
++		return utool_cmd_select_file(arg);
++	}
++	return UTOOL_OK;
++}
++
++static int ubctl_check_multi_char_option(int i, int argc_new, char **argv_new)
++{
++	static const struct ubctl_multi_char_option_info multi_char_options[] = {
++		{"-dev", true},
++		{"-file", true}
++	};
++	uint32_t count = UTOOL_ARRAY_SIZE(multi_char_options);
++	const char *option = argv_new[i];
++	uint32_t j;
++
++	for (j = 0; j < count; j++) {
++		if (strcmp(option, multi_char_options[j].name) != 0) {
++			continue;
++		}
++
++		if (!multi_char_options[j].requires_arg) {
++			return UTOOL_OK;
++		}
++
++		if (i + 1 >= argc_new || argv_new[i + 1][0] == '-') {
++			utool_err_msg("Option '%s' requires an argument.\n", option);
++			return UTOOL_ERR_INVALID_PARAM;
++		}
++		return UTOOL_OK;
++	}
++	utool_err_msg("Invalid option '%s'.\n", option);
++	return UTOOL_ERR_INVALID_PARAM;
++}
++
++static int utool_process_double_options(int *argc, char **argv)
++{
++#define UBCTL_OPTIONS_PROCESSED_COUNT 2
++#define UBCTL_OPTIONS_INDEX2 2
++	char *argv_new[UBCTL_ARG_MAX_LEN];
++	int argc_new = *argc;
++	int ret = UTOOL_OK;
++	int i, j;
++
++	for (i = 0; i < argc_new; i++) {
++		argv_new[i] = argv[i];
++	}
++
++	for (i = 1; i < argc_new; i++) {
++		if (strcmp(argv_new[i], "ls") == 0) {
++			g_utool_cmd_param.flags |= UTOOL_FLAG_LS;
++			continue;
++		}
++		if (!(argv_new[i][0] == '-' && argv_new[i][1] != '\0' && argv_new[i][UBCTL_OPTIONS_INDEX2] != '\0')) {
++			continue;
++		}
++
++		ret = ubctl_check_multi_char_option(i, argc_new, argv_new);
++		if (ret != UTOOL_OK) {
++			return ret;
++		}
++
++		if (i + 1 >= argc_new || argv_new[i + 1][0] == '-') {
++			for (j = i; j < argc_new - 1; j++) {
++				argv_new[j] = argv_new[j + 1];
++			}
++			argc_new--;
++			i--;
++			continue;
++		}
++
++		ret = utool_process_double_option(argv_new[i], argv_new[i + 1]);
++		if (ret != UTOOL_OK) {
++			return ret;
++		}
++
++		for (j = i; j < argc_new - UBCTL_OPTIONS_PROCESSED_COUNT; j++) {
++			argv_new[j] = argv_new[j + UBCTL_OPTIONS_PROCESSED_COUNT];
++		}
++		argc_new -= UBCTL_OPTIONS_PROCESSED_COUNT;
++		i--;
++	}
++
++	for (i = 0; i < argc_new; i++) {
++		argv[i] = argv_new[i];
++	}
++
++	*argc = argc_new;
++
++	return UTOOL_OK;
++}
++
+ int utool_parse_command(int argc, char **argv)
+ {
+ 	uint32_t table_cnt = 0;
+@@ -285,6 +423,10 @@ int utool_parse_command(int argc, char **argv)
+ 		{ 0, 0, 0, 0 }
+ 	};
+ 
++	ret = utool_process_double_options(&argc, argv);
++	if (ret != UTOOL_OK) {
++		return ret;
++	}
+ 	while (1) {
+ 		c = getopt_long(argc, argv, "d:c:m:p:f:e:i:t:u:", long_options, NULL);
+ 		if (c == -1) {
+diff --git a/u_utool_main.c b/u_utool_main.c
+index 3f7e57e..840d8b9 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -24,6 +24,7 @@ enum utool_dev_step_flag {
+ 	UTOOL_DEV_STEP_SCAN = 0,
+ 	UTOOL_DEV_STEP_LS,
+ 	UTOOL_DEV_STEP_UMMU,
++	UTOOL_DEV_STEP_DEBUGFS,
+ };
+ 
+ static void utool_help(void)
+@@ -35,7 +36,7 @@ static void utool_help(void)
+ 		       "  -d $ub_ctl_id : ub ctl id, chip id and ub ctl id  are used to find the valid device.\n\n"
+ 		       "  -m $module: module name, current module include: dl, nl, ta, tp, ba, qos, msgq,\n\n"
+ 		       "              ummu, port_info, ubommu, ecc_2b, queue, uboe, dump,\n\n"
+-		       "              port_pkt_stats, fw_version, port_link.\n\n"
++		       "              port_pkt_stats, fw_version, port_link, debugfs.\n\n"
+ 		       "  -f $function: function name, different processing functions are provided for each module.\n"
+ 		       "                dl: pkt_stats, lane, link_status, bit_err, bist, bist_err, link_trace,\n"
+ 		       "                    performance, rt_bandwidth, perf\n"
+@@ -59,6 +60,8 @@ static void utool_help(void)
+ 		       "  -i $index: entry index, indicates the index of entry.\n\n"
+ 		       "  -t $time: time, used to query mar_perf statistics.\n\n"
+ 		       "            period, used to query port performance.\n\n"
++		       "  -dev $device: device name, can be entered: bus number / device name / netdev name.\n\n"
++		       "  -file $file: file name, the specific file name queried by debugfs.\n\n"
+ 		       "  -h: help. display the help information, also use -h or --help or help or -help.\n\n"
+ 		       "  ls: querying information about all chip.\n\n"
+ 		       "example:\n\n"
+@@ -368,7 +371,7 @@ static int utool_check_arg(int argc, char **argv)
+ 		}
+ 
+ 		argv_len = strlen(argv[i]);
+-		if (argv_len > UBCTL_ARG_MAX_LEN) {
++		if (argv_len > UBCTL_FILE_NAME_MAX_LEN) {
+ 			utool_err_msg("The input parameter length is too long.\n");
+ 			return UTOOL_ERR;
+ 		}
+@@ -446,6 +449,8 @@ int main(int argc, char *argv[])
+ 
+ 	if (cmd_param->module_id == UTOOL_MODULE_NAME_UMMU) {
+ 		ret = utool_open_dev_step(&dev, 0, 0, UTOOL_DEV_STEP_UMMU);
++	} else if (cmd_param->module_id == UTOOL_MODULE_NAME_DEBUGFS) {
++		dev.fd = UTOOL_INVALID_FD; // debugfs does not need to open dev.
+ 	} else {
+ 		ret = utool_open_dev_step(&dev, cmd_param->chip_id, cmd_param->die_id,
+ 					  UTOOL_DEV_STEP_SCAN);
+-- 
+2.43.5
+

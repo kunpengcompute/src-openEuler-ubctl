@@ -1,0 +1,123 @@
+From afdd7926bf1ef04a0083580c6b794fd08dacc764 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Tue, 2 Jun 2026 15:17:06 +0800
+Subject: [PATCH 5/8] ub:ubctl:Modify debugfs verification matching rules.
+
+tool inclusion
+category: bugfix
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/23
+CVE: NA
+
+--------------------------------------------------------------------------
+
+ubctl modify the matching rules and print fields when debugfs queries
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ u_utool_debugfs.c  |  9 +++++----
+ u_utool_dispatch.c |  2 +-
+ u_utool_main.c     | 15 ++++++++-------
+ 3 files changed, 14 insertions(+), 12 deletions(-)
+
+diff --git a/u_utool_debugfs.c b/u_utool_debugfs.c
+index 4ef3717..1818526 100644
+--- a/u_utool_debugfs.c
++++ b/u_utool_debugfs.c
+@@ -187,13 +187,14 @@ static int utool_get_device_info(void)
+ 
+ static int utool_get_port_names(void)
+ {
++#define PORT_FILTER_CMD "ip a | awk -F ':' '{print $2}' | sed 's/^[ \\t]*//;s/[ \\t]*$//' | grep -E '^ublc|^ethc'"
+ 	char buffer[UBCTL_BUFFER_LEN_MAX];
+ 	char bus_num[UBCTL_BUS_NUM_LEN];
+ 	uint32_t i;
+ 	FILE *fp;
+ 	int ret;
+ 
+-	fp = popen("ip a | grep -E '^[a-zA-Z0-9]+:' | awk -F ':' '{print$2}' | grep -v -E 'eth0|lo'", "r");
++	fp = popen(PORT_FILTER_CMD, "r");
+ 	if (!fp) {
+ 		utool_err_msg("Failed to execute ip a command: %s\n", strerror(errno));
+ 		return UTOOL_ERR_INVALID_CMD;
+@@ -313,8 +314,8 @@ static void utool_print_help(void)
+ {
+ 	utool_err_msg("The ubctl dev command must be in the following formats:\n"
+ 		      "ubctl -m debugfs ls\n"
+-		      "ubctl -m debugfs -dev [bus_num / device_name / netdev_name]\n"
+-		      "ubctl -m debugfs -dev [bus_num / device_name / netdev_name] -file [file_name]\n");
++		      "ubctl -m debugfs -dev [Bus_Num / Device_Name / NetDev_Name]\n"
++		      "ubctl -m debugfs -dev [Bus_Num / Device_Name / NetDev_Name] -file [File_Name]\n");
+ }
+ 
+ static int utool_debugfs_cmd_ls(void)
+@@ -331,7 +332,7 @@ static int utool_debugfs_cmd_ls(void)
+ 		return UTOOL_ERR;
+ 	}
+ 
+-	utool_reg_msg("Bus Num  Device Name  Netdev Name  Device ID  Device Type\n");
++	utool_reg_msg("Bus Num  Device Name  NetDev_Name  Device ID  Device Type\n");
+ 	for (i = 0; i < g_utool_debugfs_device_cnt; i++) {
+ 		utool_get_device_name_by_ubus_num(g_utool_debugfs_devices[i].bus_num,
+ 						  g_utool_debugfs_devices[i].device_name);
+diff --git a/u_utool_dispatch.c b/u_utool_dispatch.c
+index 1161ab3..6cf3b31 100644
+--- a/u_utool_dispatch.c
++++ b/u_utool_dispatch.c
+@@ -286,7 +286,7 @@ static int utool_check_param(void)
+ 		return UTOOL_OK;
+ 	}
+ 
+-	utool_err_msg("All modules except 'ummu' must contain the '-c' and '-d' parameters.\n");
++	utool_err_msg("All modules except 'ummu' and 'debugfs' must contain '-c' and '-d' parameters.\n");
+ 
+ 	return UTOOL_ERR_CMD_NOT_FOUND;
+ }
+diff --git a/u_utool_main.c b/u_utool_main.c
+index 840d8b9..595bd7e 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -29,13 +29,14 @@ enum utool_dev_step_flag {
+ 
+ static void utool_help(void)
+ {
+-	utool_info_msg("Usage: ubctl <-c ${chip_id}> <-d ${ub_ctl_id}> <-m ${module}> [-f ${function}]\n"
+-		       "       [-p ${port}] [-e ${value}] [-u ${ummu_id}] [-i ${index}] [-t ${time}] [-h] [ls]\n\n"
++	utool_info_msg("Usage: ubctl <-c ${chip_id}> <-d ${ub_ctl_id}> <-m ${module}>\n"
++		       "       [-f ${function}] [-p ${port}] [-e ${value}] [-u ${ummu_id}] [-i ${index}]\n"
++		       "       [-t ${time}] [-dev ${device}] [-file ${file}] [-h] [ls]"
+ 		       "options:\n\n"
+ 		       "  -c $chip_id: chip id, chip id and ub ctl id  are used to find the valid device.\n\n"
+ 		       "  -d $ub_ctl_id : ub ctl id, chip id and ub ctl id  are used to find the valid device.\n\n"
+ 		       "  -m $module: module name, current module include: dl, nl, ta, tp, ba, qos, msgq,\n\n"
+-		       "              ummu, port_info, ubommu, ecc_2b, queue, uboe, dump,\n\n"
++		       "              ummu, port_info, ubommu, ecc_2b, queue, uboe, dump,\n"
+ 		       "              port_pkt_stats, fw_version, port_link, debugfs.\n\n"
+ 		       "  -f $function: function name, different processing functions are provided for each module.\n"
+ 		       "                dl: pkt_stats, lane, link_status, bit_err, bist, bist_err, link_trace,\n"
+@@ -48,19 +49,19 @@ static void utool_help(void)
+ 		       "                    intra_sp_rout, intra_mp_rout, port_scna, port_table, port_wb_table,\n"
+ 		       "                    mar_cyc_en\n"
+ 		       "                msgq: que_stats, entry\n"
+-		       "                ummu: ummu_sync_query, ummu_sync_config\n\n"
++		       "                ummu: ummu_sync_query, ummu_sync_config\n"
+ 		       "                uboe: rxmac2txmac, txmac2rxmac, txpcs2rxpcs, prbs, prbs_err_cnt\n\n"
+ 		       "  -p $port: port index, indicates the physical port index,\n"
+-		       "            The port_bitmap represents each bit as a port, used in the dl-performance"
++		       "            The port_bitmap represents each bit as a port, used in the dl-performance\n"
+ 		       "            and rt_bandwidth command.\n\n"
+ 		       "  -e $value: value, used to set the value of the register.\n\n"
+ 		       "  -u $ummu_id: ummu id, it is used to search for the corresponding ummu register,\n"
+ 		       "               the value of ummu_id is the same as the number of io_die, the io_ide with\n"
+ 		       "               a smaller absolute address corresponds to a smaller ummu_id index.\n\n"
+ 		       "  -i $index: entry index, indicates the index of entry.\n\n"
+-		       "  -t $time: time, used to query mar_perf statistics.\n\n"
++		       "  -t $time: time, used to query mar_perf statistics.\n"
+ 		       "            period, used to query port performance.\n\n"
+-		       "  -dev $device: device name, can be entered: bus number / device name / netdev name.\n\n"
++		       "  -dev $device: device name, can be entered: Bus_Num / Device_Name / NetDev_Name.\n\n"
+ 		       "  -file $file: file name, the specific file name queried by debugfs.\n\n"
+ 		       "  -h: help. display the help information, also use -h or --help or help or -help.\n\n"
+ 		       "  ls: querying information about all chip.\n\n"
+-- 
+2.43.5
+

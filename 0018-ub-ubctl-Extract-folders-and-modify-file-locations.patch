@@ -1,0 +1,1573 @@
+From 508cb5e5cdc734d46f7d4fda0c36200cf264b140 Mon Sep 17 00:00:00 2001
+From: Jiaqi Cheng <chengjiaqi3@huawei.com>
+Date: Tue, 21 Jul 2026 16:35:11 +0800
+Subject: [PATCH 2/7] ub:ubctl:Extract folders and modify file locations.
+
+tool inclusion
+category: bugfix
+bugzilla: https://atomgit.com/openeuler/ubctl/issues/27
+CVE: NA
+
+--------------------------------------------------------------------------
+
+Extract three folders
+Place those involving protocol layers in the protocol_layer directory
+Items related to individual function queries should be placed in the
+feature directory
+Place public items in the common directory
+
+Signed-off-by: Jiaqi Cheng <chengjiaqi3@huawei.com>
+---
+ CMakeLists.txt                                |  5 ++-
+ u_utool_common.h => common/u_utool_common.h   |  6 +--
+ u_utool_error.h => common/u_utool_error.h     |  0
+ u_utool_fwctl.c => common/u_utool_fwctl.c     |  5 ++-
+ u_utool_fwctl.h => common/u_utool_fwctl.h     |  4 +-
+ .../u_utool_debugfs.c                         |  8 ++--
+ .../u_utool_debugfs.h                         |  4 +-
+ .../u_utool_fw_version.c                      |  9 ++--
+ .../u_utool_fw_version.h                      |  4 +-
+ u_utool_io_die.c => feature/u_utool_io_die.c  | 18 ++++----
+ u_utool_io_die.h => feature/u_utool_io_die.h  |  4 +-
+ u_utool_msg.c => feature/u_utool_msg.c        |  6 +--
+ u_utool_msg.h => feature/u_utool_msg.h        |  4 +-
+ .../u_utool_port_info.c                       |  6 +--
+ .../u_utool_port_info.h                       |  4 +-
+ .../u_utool_port_link.c                       | 14 +++---
+ .../u_utool_port_link.h                       |  4 +-
+ .../u_utool_port_pkt.c                        |  4 +-
+ .../u_utool_port_pkt.h                        |  4 +-
+ u_utool_qos.c => feature/u_utool_qos.c        |  7 ++-
+ u_utool_qos.h => feature/u_utool_qos.h        |  4 +-
+ u_utool_queue.c => feature/u_utool_queue.c    |  6 +--
+ u_utool_queue.h => feature/u_utool_queue.h    |  4 +-
+ u_utool_uboe.c => feature/u_utool_uboe.c      |  9 ++--
+ u_utool_uboe.h => feature/u_utool_uboe.h      |  4 +-
+ u_utool_ba.c => protocol_layer/u_utool_ba.c   | 19 ++++----
+ u_utool_ba.h => protocol_layer/u_utool_ba.h   |  4 +-
+ u_utool_dl.c => protocol_layer/u_utool_dl.c   | 36 +++++++--------
+ u_utool_dl.h => protocol_layer/u_utool_dl.h   |  4 +-
+ .../u_utool_dump.c                            |  6 +--
+ .../u_utool_dump.h                            |  4 +-
+ .../u_utool_ecc_2b.c                          |  4 +-
+ .../u_utool_ecc_2b.h                          |  4 +-
+ u_utool_nl.c => protocol_layer/u_utool_nl.c   | 10 ++---
+ u_utool_nl.h => protocol_layer/u_utool_nl.h   |  4 +-
+ u_utool_ta.c => protocol_layer/u_utool_ta.c   |  6 +--
+ u_utool_ta.h => protocol_layer/u_utool_ta.h   |  4 +-
+ u_utool_tp.c => protocol_layer/u_utool_tp.c   |  6 +--
+ u_utool_tp.h => protocol_layer/u_utool_tp.h   |  4 +-
+ .../u_utool_tp_field_info.c                   |  4 +-
+ .../u_utool_tp_field_info.h                   |  2 +-
+ .../u_utool_ubommu.c                          |  5 +--
+ .../u_utool_ubommu.h                          |  4 +-
+ .../u_utool_ummu.c                            |  8 ++--
+ .../u_utool_ummu.h                            |  4 +-
+ u_utool_dispatch.c                            | 44 +++++++++----------
+ u_utool_dispatch.h                            |  2 +-
+ u_utool_main.c                                | 11 ++---
+ u_utool_pkt.c                                 | 26 +++++------
+ u_utool_pkt.h                                 |  4 +-
+ 50 files changed, 190 insertions(+), 186 deletions(-)
+ rename u_utool_common.h => common/u_utool_common.h (97%)
+ rename u_utool_error.h => common/u_utool_error.h (100%)
+ rename u_utool_fwctl.c => common/u_utool_fwctl.c (90%)
+ rename u_utool_fwctl.h => common/u_utool_fwctl.h (95%)
+ rename u_utool_debugfs.c => feature/u_utool_debugfs.c (99%)
+ rename u_utool_debugfs.h => feature/u_utool_debugfs.h (96%)
+ rename u_utool_fw_version.c => feature/u_utool_fw_version.c (94%)
+ rename u_utool_fw_version.h => feature/u_utool_fw_version.h (88%)
+ rename u_utool_io_die.c => feature/u_utool_io_die.c (78%)
+ rename u_utool_io_die.h => feature/u_utool_io_die.h (92%)
+ rename u_utool_msg.c => feature/u_utool_msg.c (99%)
+ rename u_utool_msg.h => feature/u_utool_msg.h (86%)
+ rename u_utool_port_info.c => feature/u_utool_port_info.c (99%)
+ rename u_utool_port_info.h => feature/u_utool_port_info.h (86%)
+ rename u_utool_port_link.c => feature/u_utool_port_link.c (91%)
+ rename u_utool_port_link.h => feature/u_utool_port_link.h (88%)
+ rename u_utool_port_pkt.c => feature/u_utool_port_pkt.c (99%)
+ rename u_utool_port_pkt.h => feature/u_utool_port_pkt.h (86%)
+ rename u_utool_qos.c => feature/u_utool_qos.c (99%)
+ rename u_utool_qos.h => feature/u_utool_qos.h (88%)
+ rename u_utool_queue.c => feature/u_utool_queue.c (96%)
+ rename u_utool_queue.h => feature/u_utool_queue.h (86%)
+ rename u_utool_uboe.c => feature/u_utool_uboe.c (95%)
+ rename u_utool_uboe.h => feature/u_utool_uboe.h (86%)
+ rename u_utool_ba.c => protocol_layer/u_utool_ba.c (99%)
+ rename u_utool_ba.h => protocol_layer/u_utool_ba.h (88%)
+ rename u_utool_dl.c => protocol_layer/u_utool_dl.c (98%)
+ rename u_utool_dl.h => protocol_layer/u_utool_dl.h (88%)
+ rename u_utool_dump.c => protocol_layer/u_utool_dump.c (98%)
+ rename u_utool_dump.h => protocol_layer/u_utool_dump.h (89%)
+ rename u_utool_ecc_2b.c => protocol_layer/u_utool_ecc_2b.c (99%)
+ rename u_utool_ecc_2b.h => protocol_layer/u_utool_ecc_2b.h (89%)
+ rename u_utool_nl.c => protocol_layer/u_utool_nl.c (99%)
+ rename u_utool_nl.h => protocol_layer/u_utool_nl.h (88%)
+ rename u_utool_ta.c => protocol_layer/u_utool_ta.c (99%)
+ rename u_utool_ta.h => protocol_layer/u_utool_ta.h (88%)
+ rename u_utool_tp.c => protocol_layer/u_utool_tp.c (99%)
+ rename u_utool_tp.h => protocol_layer/u_utool_tp.h (88%)
+ rename u_utool_tp_field_info.c => protocol_layer/u_utool_tp_field_info.c (99%)
+ rename u_utool_tp_field_info.h => protocol_layer/u_utool_tp_field_info.h (97%)
+ rename u_utool_ubommu.c => protocol_layer/u_utool_ubommu.c (97%)
+ rename u_utool_ubommu.h => protocol_layer/u_utool_ubommu.h (89%)
+ rename u_utool_ummu.c => protocol_layer/u_utool_ummu.c (99%)
+ rename u_utool_ummu.h => protocol_layer/u_utool_ummu.h (87%)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 45a8829..04b1331 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -5,7 +5,10 @@ project(ubctl VERSION ${UB_TOOL_VERSION} LANGUAGES C CXX)
+ 
+ include_directories(./)
+ file(GLOB UTOOL_SRC
+-    ./*.c)
++    ./*.c
++    ./common/*.c
++    ./feature/*.c
++    ./protocol_layer/*.c)
+ 
+ add_executable(ubctl ${UTOOL_SRC})
+ 
+diff --git a/u_utool_common.h b/common/u_utool_common.h
+similarity index 97%
+rename from u_utool_common.h
+rename to common/u_utool_common.h
+index cce9a65..3674fe5 100644
+--- a/u_utool_common.h
++++ b/common/u_utool_common.h
+@@ -16,7 +16,7 @@
+ #include <string.h>
+ #include <linux/types.h>
+ 
+-#include "./kernel_headers/ub_fwctl.h"
++#include "../kernel_headers/ub_fwctl.h"
+ 
+ #define UTOOL_VERSION 0
+ 
+@@ -27,8 +27,8 @@
+ #define UTOOL_ENV_VER_K_1 (2001U)
+ 
+ #define UBCTL_ARG_MAX_LEN 20
+-#define UBCTL_FILE_NAME_MAX_LEN 128
+-#define UTOOL_LINE_BUF_LEN 300
++#define UBCTL_FILE_NAME_MAX_LEN 128U
++#define UTOOL_LINE_BUF_LEN 300U
+ #define UTOOL_DEV_NAME_LEN_MAX 512
+ #define UTOOL_DEV_CHIP_DIE_ID_MAX (1U << 16)
+ #define UTOOL_REG_CNT_DEFAULT 0U
+diff --git a/u_utool_error.h b/common/u_utool_error.h
+similarity index 100%
+rename from u_utool_error.h
+rename to common/u_utool_error.h
+diff --git a/u_utool_fwctl.c b/common/u_utool_fwctl.c
+similarity index 90%
+rename from u_utool_fwctl.c
+rename to common/u_utool_fwctl.c
+index d8a0fb4..35b139f 100644
+--- a/u_utool_fwctl.c
++++ b/common/u_utool_fwctl.c
+@@ -14,7 +14,7 @@
+ int utool_cmd_exec(struct utool_dev *dev, struct fwctl_rpc_ub_in *in, uint32_t inlen,
+ 		   struct fwctl_rpc_ub_out *out, uint32_t *outlen)
+ {
+-#define UBCTL_MAX_OUT_LEN 0x200000
++#define UBCTL_MAX_OUT_LEN 0x200000U
+ 	struct fwctl_cmdrpc rpc = {};
+ 	int ret = UTOOL_OK;
+ 
+@@ -42,7 +42,8 @@ int utool_cmd_exec(struct utool_dev *dev, struct fwctl_rpc_ub_in *in, uint32_t i
+ 	}
+ 
+ 	if (rpc.outlen > UBCTL_MAX_OUT_LEN) {
+-		utool_err_msg("The out data is bigger than max size.\n");
++		utool_err_msg("The out data size = %ubytes is bigger than max size = %ubytes.\n",
++			      rpc.outlen, UBCTL_MAX_OUT_LEN);
+ 		return UTOOL_ERR_IOCTL;
+ 	}
+ 
+diff --git a/u_utool_fwctl.h b/common/u_utool_fwctl.h
+similarity index 95%
+rename from u_utool_fwctl.h
+rename to common/u_utool_fwctl.h
+index dce908b..26cd375 100644
+--- a/u_utool_fwctl.h
++++ b/common/u_utool_fwctl.h
+@@ -12,8 +12,8 @@
+ #include <stdint.h>
+ #include <sys/ioctl.h>
+ 
+-#include "./kernel_headers/fwctl.h"
+-#include "./kernel_headers/ub_fwctl.h"
++#include "../kernel_headers/fwctl.h"
++#include "../kernel_headers/ub_fwctl.h"
+ #include "u_utool_common.h"
+ 
+ enum utool_loopback_mode {
+diff --git a/u_utool_debugfs.c b/feature/u_utool_debugfs.c
+similarity index 99%
+rename from u_utool_debugfs.c
+rename to feature/u_utool_debugfs.c
+index 1818526..b3df39f 100644
+--- a/u_utool_debugfs.c
++++ b/feature/u_utool_debugfs.c
+@@ -13,8 +13,8 @@
+ #include <sys/stat.h>
+ #include <libgen.h>
+ 
+-#include "u_utool_error.h"
+-#include "u_utool_pkt.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_debugfs.h"
+ 
+ #define UBCTL_BUS_NUM_LEN 6
+@@ -332,7 +332,7 @@ static int utool_debugfs_cmd_ls(void)
+ 		return UTOOL_ERR;
+ 	}
+ 
+-	utool_reg_msg("Bus Num  Device Name  NetDev_Name  Device ID  Device Type\n");
++	utool_reg_msg("Bus_Num  Device_Name  NetDev_Name  Device_ID  Device_Type\n");
+ 	for (i = 0; i < g_utool_debugfs_device_cnt; i++) {
+ 		utool_get_device_name_by_ubus_num(g_utool_debugfs_devices[i].bus_num,
+ 						  g_utool_debugfs_devices[i].device_name);
+@@ -340,7 +340,7 @@ static int utool_debugfs_cmd_ls(void)
+ 					  g_utool_debugfs_devices[i].device_type) != UTOOL_OK) {
+ 			continue;
+ 		}
+-		utool_reg_msg("%-9s%-12s%-14s0x%-9s%-11s\n",
++		utool_reg_msg("%-9s%-13s%-13s0x%-9s%-11s\n",
+ 			      g_utool_debugfs_devices[i].bus_num, g_utool_debugfs_devices[i].device_name,
+ 			      g_utool_debugfs_devices[i].port_name, g_utool_debugfs_devices[i].device_id,
+ 			      g_utool_debugfs_devices[i].device_type);
+diff --git a/u_utool_debugfs.h b/feature/u_utool_debugfs.h
+similarity index 96%
+rename from u_utool_debugfs.h
+rename to feature/u_utool_debugfs.h
+index d394ccb..ff65cbf 100644
+--- a/u_utool_debugfs.h
++++ b/feature/u_utool_debugfs.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_DEBUGFS_H__
+ #define __U_UTOOL_DEBUGFS_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ 
+ struct list_head {
+diff --git a/u_utool_fw_version.c b/feature/u_utool_fw_version.c
+similarity index 94%
+rename from u_utool_fw_version.c
+rename to feature/u_utool_fw_version.c
+index efae6d1..1f54654 100644
+--- a/u_utool_fw_version.c
++++ b/feature/u_utool_fw_version.c
+@@ -8,8 +8,8 @@
+ 
+ #include <stdio.h>
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_fw_version.h"
+ 
+ struct utool_fw_version_data {
+@@ -28,8 +28,8 @@ int utool_fw_version_parse_rpc_pkt(struct fwctl_rpc_ub_out *fw_version_out)
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 	if (fw_version_out->data_size != sizeof(struct utool_fw_version_data)) {
+-		utool_err_msg("Failed to parse firmware version rpc pkt, out data size = %u.\n",
+-			      fw_version_out->data_size);
++		utool_err_msg("Failed to parse firmware version rpc pkt, out data size = %ubytes, it must be %zubytes.\n",
++			      fw_version_out->data_size, sizeof(struct utool_fw_version_data));
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -87,7 +87,6 @@ int utool_fw_version_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param
+ 	for (i = 0; i < cmd_fw_version_cnt; i++) {
+ 		if (param->flags == utool_cmd_fw_version_table[i].flags) {
+ 			if (utool_cmd_fw_version_table[i].execute == NULL) {
+-				utool_err_msg("Failed to dispatch firmware version, execute is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 
+diff --git a/u_utool_fw_version.h b/feature/u_utool_fw_version.h
+similarity index 88%
+rename from u_utool_fw_version.h
+rename to feature/u_utool_fw_version.h
+index cdae0ca..0b0ef11 100644
+--- a/u_utool_fw_version.h
++++ b/feature/u_utool_fw_version.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_FW_VERSION_H__
+ #define __U_UTOOL_FW_VERSION_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_fw_version_parse_rpc_pkt(struct fwctl_rpc_ub_out *fw_version_out);
+ int utool_fw_version_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+diff --git a/u_utool_io_die.c b/feature/u_utool_io_die.c
+similarity index 78%
+rename from u_utool_io_die.c
+rename to feature/u_utool_io_die.c
+index b1231da..4614a91 100644
+--- a/u_utool_io_die.c
++++ b/feature/u_utool_io_die.c
+@@ -10,11 +10,11 @@
+ #include <sys/types.h>
+ #include <unistd.h>
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_io_die.h"
+ 
+-#define UTOOL_MAX_IO_DIE_PORT_NUM 20
++#define UTOOL_MAX_IO_DIE_PORT_NUM 20U
+ 
+ static uint32_t g_ubctl_id = 0;
+ 
+@@ -30,7 +30,7 @@ static int utool_display_io_die_info(struct fwctl_io_die_info *data)
+ 	utool_reg_msg("\tport_count: %u\n", port_num);
+ 
+ 	if (port_num > UTOOL_MAX_IO_DIE_PORT_NUM) {
+-		utool_err_msg("Port num is invalid.\n");
++		utool_err_msg("Port num = %u is bigger than maximum %u.\n", port_num, UTOOL_MAX_IO_DIE_PORT_NUM);
+ 		return UTOOL_ERR;
+ 	}
+ 
+@@ -57,7 +57,8 @@ int utool_io_die_cmd(struct utool_dev *dev, struct utool_cmd_param *param)
+ 	int ret = UTOOL_OK;
+ 
+ 	if ((dev == NULL) || (param == NULL)) {
+-		utool_err_msg("Param is invalid.\n");
++		utool_err_msg("Param is invalid, dev == NULL(%d), param == NULL(%d).\n",
++			      (dev == NULL), (param == NULL));
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -77,15 +78,16 @@ int utool_io_die_parse_rpc_pkt(struct fwctl_rpc_ub_out *out)
+ 	struct fwctl_io_die_info *data = NULL;
+ 
+ 	if ((out == NULL) || (out->data_size < sizeof(struct fwctl_io_die_info))) {
+-		utool_err_msg("Param is invalid, out==null(%d), data size is too small(%d).\n",
+-			      (out == NULL), out == NULL ? 0 : 1);
++		utool_err_msg("Param is invalid, out==null(%d) or data size = %ubytes is less than the struct size %zubytes(%d).\n",
++			      (out == NULL), out == NULL ? 0 : out->data_size,
++			      sizeof(struct fwctl_io_die_info), out == NULL ? 0 : 1);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+ 	data = (struct fwctl_io_die_info *)out->data;
+ 
+ 	if (out->data_size != sizeof(struct fwctl_io_die_info) + data->port_count * sizeof(struct fwctl_port_info)) {
+-		utool_err_msg("out data is invalid, data size = %u, port count = %u", out->data_size, data->port_count);
++		utool_err_msg("Out data is invalid, data size = %ubytes, port count = %u.\n", out->data_size, data->port_count);
+ 		return UTOOL_ERR_PARSE;
+ 	}
+ 
+diff --git a/u_utool_io_die.h b/feature/u_utool_io_die.h
+similarity index 92%
+rename from u_utool_io_die.h
+rename to feature/u_utool_io_die.h
+index 78fb4db..5625e05 100644
+--- a/u_utool_io_die.h
++++ b/feature/u_utool_io_die.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_IO_DIE_H__
+ #define __U_UTOOL_IO_DIE_H__
+ 
+-#include "u_utool_common.h"
+-#include "u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
+ 
+ struct fwctl_port_info {
+ 	uint32_t port_id;
+diff --git a/u_utool_msg.c b/feature/u_utool_msg.c
+similarity index 99%
+rename from u_utool_msg.c
+rename to feature/u_utool_msg.c
+index 4857497..d282dde 100644
+--- a/u_utool_msg.c
++++ b/feature/u_utool_msg.c
+@@ -6,9 +6,9 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
+-#include "u_utool_fwctl.h"
++#include "../common/u_utool_error.h"
++#include "../common/u_utool_fwctl.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_msg.h"
+ 
+ #define MSGQ_QUE_STATS "que_stats"
+diff --git a/u_utool_msg.h b/feature/u_utool_msg.h
+similarity index 86%
+rename from u_utool_msg.h
+rename to feature/u_utool_msg.h
+index 3145dc9..cca3f2e 100644
+--- a/u_utool_msg.h
++++ b/feature/u_utool_msg.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_MSG_H__
+ #define __U_UTOOL_MSG_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_msgq_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ 
+diff --git a/u_utool_port_info.c b/feature/u_utool_port_info.c
+similarity index 99%
+rename from u_utool_port_info.c
+rename to feature/u_utool_port_info.c
+index e85f2ab..8b0632b 100644
+--- a/u_utool_port_info.c
++++ b/feature/u_utool_port_info.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_port_info.h"
+ 
+ #define UTOOL_FEC_ERR_HIGH_SHIFT 32
+@@ -772,7 +772,7 @@ static int utool_port_info_parse_modules(struct fwctl_rpc_ub_out *port_info_out)
+ 
+ static int utool_port_info_cmd_get_modules(struct utool_dev *dev, struct utool_cmd_param *param)
+ {
+-	struct utool_pkt_exec pkt_exec = {UTOOL_CMD_QUERY_PORT_INFO, 0, NULL};
++	struct utool_pkt_exec pkt_exec = { UTOOL_CMD_QUERY_PORT_INFO, 0, NULL };
+ 	struct fwctl_pkt_in_port_info *pkt_in = NULL;
+ 	uint32_t pkt_in_len = 0;
+ 	int ret = UTOOL_OK;
+diff --git a/u_utool_port_info.h b/feature/u_utool_port_info.h
+similarity index 86%
+rename from u_utool_port_info.h
+rename to feature/u_utool_port_info.h
+index 076091a..58db60c 100644
+--- a/u_utool_port_info.h
++++ b/feature/u_utool_port_info.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_PORT_INFO_H__
+ #define __U_UTOOL_PORT_INFO_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_port_info_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ 
+diff --git a/u_utool_port_link.c b/feature/u_utool_port_link.c
+similarity index 91%
+rename from u_utool_port_link.c
+rename to feature/u_utool_port_link.c
+index ad01241..8230396 100644
+--- a/u_utool_port_link.c
++++ b/feature/u_utool_port_link.c
+@@ -9,12 +9,12 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_port_link.h"
+ 
+ #define UTOOL_MAX_PORT_LINK_STATUS 10U
+-#define UTOOL_MAX_TIME_INFO_SIZE 64
++#define UTOOL_MAX_TIME_INFO_SIZE 64U
+ 
+ struct port_link_info {
+ 	long long time;
+@@ -96,8 +96,9 @@ int utool_port_link_parse_rpc_pkt(struct fwctl_rpc_ub_out *out)
+ 	struct tm time;
+ 
+ 	if ((out == NULL) || (out->data_size < sizeof(struct ubctl_port_link_stats))) {
+-		utool_err_msg("Param is invalid, out==null(%d), data size is too small(%d).\n",
+-			      (out == NULL), out == NULL ? 0 : 1);
++		utool_err_msg("Param is invalid, out==null(%d) or data size = %ubytes is less than the struct size %zubytes(%d).\n",
++			      (out == NULL), out == NULL ? 0 : out->data_size,
++			      sizeof(struct ubctl_port_link_stats),out == NULL ? 0 : 1);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -110,7 +111,7 @@ int utool_port_link_parse_rpc_pkt(struct fwctl_rpc_ub_out *out)
+ 	data = (struct ubctl_port_link_stats *)out->data;
+ 	data_num = data->link_info_num;
+ 	if (data_num > UTOOL_MAX_PORT_LINK_STATUS) {
+-		utool_err_msg("the volume of data is excessive, data num = %u\n", data_num);
++		utool_err_msg("Data num = %u is bigger than maximum %u.\n", data_num, UTOOL_MAX_PORT_LINK_STATUS);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -163,7 +164,6 @@ int utool_port_link_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *
+ 	for (i = 0; i < cmd_port_link_cnt; i++) {
+ 		if (param->flags == utool_cmd_port_link_table[i].flags) {
+ 			if (utool_cmd_port_link_table[i].execute == NULL) {
+-				utool_err_msg("Failed to dispatch port_link, execute is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 
+diff --git a/u_utool_port_link.h b/feature/u_utool_port_link.h
+similarity index 88%
+rename from u_utool_port_link.h
+rename to feature/u_utool_port_link.h
+index 8d9a588..c2dbe5e 100644
+--- a/u_utool_port_link.h
++++ b/feature/u_utool_port_link.h
+@@ -10,8 +10,8 @@
+ #define __U_UTOOL_PORT_LINK_H__
+ 
+ #include <time.h>
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_port_link_parse_rpc_pkt(struct fwctl_rpc_ub_out *out);
+ int utool_port_link_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+diff --git a/u_utool_port_pkt.c b/feature/u_utool_port_pkt.c
+similarity index 99%
+rename from u_utool_port_pkt.c
+rename to feature/u_utool_port_pkt.c
+index 9e9a837..551c715 100644
+--- a/u_utool_port_pkt.c
++++ b/feature/u_utool_port_pkt.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_port_pkt.h"
+ 
+ static struct utool_field_info g_utool_uboe_pkt_field_info[] = {
+diff --git a/u_utool_port_pkt.h b/feature/u_utool_port_pkt.h
+similarity index 86%
+rename from u_utool_port_pkt.h
+rename to feature/u_utool_port_pkt.h
+index d3032c3..dcf0170 100644
+--- a/u_utool_port_pkt.h
++++ b/feature/u_utool_port_pkt.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_PORT_PKT_H__
+ #define __U_UTOOL_PORT_PKT_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_port_pkt_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ 
+diff --git a/u_utool_qos.c b/feature/u_utool_qos.c
+similarity index 99%
+rename from u_utool_qos.c
+rename to feature/u_utool_qos.c
+index 6e09f2d..6b17cb9 100644
+--- a/u_utool_qos.c
++++ b/feature/u_utool_qos.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_qos.h"
+ 
+ static struct utool_field_info g_utool_qos_field[] = {
+@@ -293,7 +293,7 @@ int utool_qos_parse_rpc_pkt(struct fwctl_rpc_ub_out *qos_out)
+ 	int ret = UTOOL_OK;
+ 
+ 	if (qos_out == NULL) {
+-		utool_err_msg("Failed to parse qos rpc pkt, qos_out is NULL.\n");
++		utool_err_msg("Failed to parse qos rpc pkt, qos out is NULL.\n");
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -346,7 +346,6 @@ int utool_qos_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param)
+ 	for (i = 0; i < cmd_qos_cnt; i++) {
+ 		if (param->flags == utool_cmd_qos_table[i].flags) {
+ 			if (utool_cmd_qos_table[i].execute == NULL) {
+-				utool_err_msg("Failed to dispatch qos, execute is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 
+diff --git a/u_utool_qos.h b/feature/u_utool_qos.h
+similarity index 88%
+rename from u_utool_qos.h
+rename to feature/u_utool_qos.h
+index 33b2187..08637ba 100644
+--- a/u_utool_qos.h
++++ b/feature/u_utool_qos.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_QOS_H__
+ #define __U_UTOOL_QOS_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_qos_cal_data_len(uint32_t *qos_data_len);
+ int utool_qos_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+diff --git a/u_utool_queue.c b/feature/u_utool_queue.c
+similarity index 96%
+rename from u_utool_queue.c
+rename to feature/u_utool_queue.c
+index f481b4f..255e6d4 100644
+--- a/u_utool_queue.c
++++ b/feature/u_utool_queue.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_queue.h"
+ 
+ #define UTOOL_MSGQ_NUM 4
+@@ -64,7 +64,7 @@ static int utool_queue_cmd(struct utool_dev *dev, struct utool_cmd_param *param)
+ 	queue_pkt_exec.execute = utool_queue_parse_rpc_pkt;
+ 	pkt_in = utool_null_create_pkt_in(&pkt_in_len, param);
+ 	if (pkt_in == NULL) {
+-		utool_err_msg("Failed to create pkt_in.\n");
++		utool_err_msg("Failed to create pkt in.\n");
+ 		return UTOOL_ERR_MALLOC;
+ 	}
+ 
+diff --git a/u_utool_queue.h b/feature/u_utool_queue.h
+similarity index 86%
+rename from u_utool_queue.h
+rename to feature/u_utool_queue.h
+index 943a6d2..bb6b9ff 100644
+--- a/u_utool_queue.h
++++ b/feature/u_utool_queue.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_QUEUE_H__
+ #define __U_UTOOL_QUEUE_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_queue_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ 
+diff --git a/u_utool_uboe.c b/feature/u_utool_uboe.c
+similarity index 95%
+rename from u_utool_uboe.c
+rename to feature/u_utool_uboe.c
+index e2946d7..734d6ee 100644
+--- a/u_utool_uboe.c
++++ b/feature/u_utool_uboe.c
+@@ -10,8 +10,8 @@
+ #include <sys/types.h>
+ #include <unistd.h>
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_uboe.h"
+ 
+ #define UBOE_DEFAULT_CNT 24U
+@@ -92,7 +92,7 @@ static int utool_uboe_cmd_func(struct utool_dev *dev, struct utool_cmd_param *pa
+ 	uint32_t i;
+ 
+ 	if (param->value > UBCTL_MAX_ENABLE_VAL) {
+-		utool_err_msg("The param for '-e' exceeds the max value.\n");
++		utool_err_msg("The param for '-e' exceeds maximum %u.\n", UBCTL_MAX_ENABLE_VAL);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -102,7 +102,7 @@ static int utool_uboe_cmd_func(struct utool_dev *dev, struct utool_cmd_param *pa
+ 			func_pkt_exec.execute = func_table[i].execute;
+ 
+ 			if (func_table[i].create_pkt_in == NULL) {
+-				utool_err_msg("Failed to create uboe func pkt in, create pkt in is NULL.\n");
++				utool_err_msg("Failed to create uboe func pkt in, callback is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 
+@@ -145,7 +145,6 @@ int utool_uboe_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param
+ 	for (i = 0; i < UTOOL_ARRAY_SIZE(utool_uboe_cmd_table); i++) {
+ 		if (param->flags == utool_uboe_cmd_table[i].flags) {
+ 			if (utool_uboe_cmd_table[i].execute == NULL) {
+-				utool_err_msg("Failed to dispatch, execute is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 			return utool_uboe_cmd_table[i].execute(dev, param,
+diff --git a/u_utool_uboe.h b/feature/u_utool_uboe.h
+similarity index 86%
+rename from u_utool_uboe.h
+rename to feature/u_utool_uboe.h
+index 2d04bd3..1d7ccbc 100644
+--- a/u_utool_uboe.h
++++ b/feature/u_utool_uboe.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_UBOE_H__
+ #define __U_UTOOL_UBOE_H__
+ 
+-#include "u_utool_common.h"
+-#include "u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
+ 
+ int utool_uboe_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ 
+diff --git a/u_utool_ba.c b/protocol_layer/u_utool_ba.c
+similarity index 99%
+rename from u_utool_ba.c
+rename to protocol_layer/u_utool_ba.c
+index a081bc4..f2f5ee9 100644
+--- a/u_utool_ba.c
++++ b/protocol_layer/u_utool_ba.c
+@@ -11,8 +11,8 @@
+ #include <sys/mman.h>
+ #include <unistd.h>
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../u_utool_pkt.h"
++#include "../common/u_utool_error.h"
+ #include "u_utool_ba.h"
+ 
+ #define BA_PKT_STATS "pkt_stats"
+@@ -1213,10 +1213,11 @@ static int utool_ba_mar_perf_obtain_data(struct utool_ba_mar_perf_query *ba_mar_
+ #define SUM_CMD_LOC 7
+ #define WLATCNT_FIRST_LOC 8
+ #define RLATCNT_FIRST_LOC 9
+-#define BA_MAR_PERF_MAX_SIZE 10
++#define BA_MAR_PERF_MIN_SIZE 10U
+ 
+-	if (data_arr_size < (BA_MAR_PERF_MAX_SIZE * sizeof(*ba_mar_perf_data_arr))) {
+-		utool_err_msg("Failed to get mar perf out data, data size is err.\n");
++	if (data_arr_size < (BA_MAR_PERF_MIN_SIZE * sizeof(*ba_mar_perf_data_arr))) {
++		utool_err_msg("Data arr size = %ubytes is less than the minimum %zubytes.\n",
++			      data_arr_size, BA_MAR_PERF_MIN_SIZE * sizeof(*ba_mar_perf_data_arr));
+ 		return UTOOL_ERR;
+ 	}
+ 
+@@ -1458,7 +1459,8 @@ static int utool_ba_cmd_conf(struct utool_dev *dev, struct utool_cmd_param *para
+ 
+ 	if (strcmp(param->func, BA_MAR_CYC_EN) == 0) {
+ 		if (param->value > UTOOL_MAR_CYC_EN_MAX_VALUE) {
+-			utool_err_msg("Invalid value, value should be in [0, %u].\n", UTOOL_MAR_CYC_EN_MAX_VALUE);
++			utool_err_msg("Param value = %u is invalid, it must be in [0, %u].\n",
++				      param->value, UTOOL_MAR_CYC_EN_MAX_VALUE);
+ 			return UTOOL_ERR_INVALID_PARAM;
+ 		}
+ 	}
+@@ -1470,7 +1472,7 @@ static int utool_ba_cmd_mar_perf(struct utool_dev *dev, struct utool_cmd_param *
+ 				 struct utool_func_dispatch *func_table, uint32_t func_cnt)
+ {
+ #define BA_MAR_SHM_PATH_AUTHORITY 0600
+-#define BA_MAR_PERF_MAX_TIME 3600
++#define BA_MAR_PERF_MAX_TIME 3600U
+ #define UBCTL "/ubctl"
+ 
+ 	UTOOL_SET_USED(func_table);
+@@ -1504,7 +1506,8 @@ static int utool_ba_cmd_mar_perf(struct utool_dev *dev, struct utool_cmd_param *
+ 	}
+ 
+ 	if (param->time < 1 || param->time > BA_MAR_PERF_MAX_TIME) {
+-		utool_err_msg("Invalid time, time = %u.\n", param->time);
++		utool_err_msg("Param time = %ums is invalid, it must be in [1ms, %ums].\n",
++			      param->time, BA_MAR_PERF_MAX_TIME);
+ 		ret = UTOOL_ERR_INVALID_CMD;
+ 	} else {
+ 		g_ba_mar_perf_time = param->time;
+diff --git a/u_utool_ba.h b/protocol_layer/u_utool_ba.h
+similarity index 88%
+rename from u_utool_ba.h
+rename to protocol_layer/u_utool_ba.h
+index 8ddaa5f..a707da3 100644
+--- a/u_utool_ba.h
++++ b/protocol_layer/u_utool_ba.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_BA_H__
+ #define __U_UTOOL_BA_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_ba_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ int utool_ba_cal_data_len(uint32_t *ba_data_len);
+diff --git a/u_utool_dl.c b/protocol_layer/u_utool_dl.c
+similarity index 98%
+rename from u_utool_dl.c
+rename to protocol_layer/u_utool_dl.c
+index 823dbac..63fb143 100644
+--- a/u_utool_dl.c
++++ b/protocol_layer/u_utool_dl.c
+@@ -7,9 +7,9 @@
+  */
+ 
+ #include <unistd.h>
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_dl.h"
+-#include "u_utool_pkt.h"
+ 
+ #define DL_PKT_STATS "pkt_stats"
+ #define DL_LINK_STATUS "link_status"
+@@ -23,9 +23,9 @@
+ #define DL_PERF "perf"
+ 
+ #define UTOOL_TRACE_4K 0x0001000
+-#define UTOOL_PERF_DATA_LEN 9472
++#define UTOOL_PERF_DATA_LEN 9472U
+ #define UTOOL_MAX_PORT 64U
+-#define UBCTL_MAX_QUERY_NUM 2
++#define UBCTL_MAX_QUERY_NUM 2U
+ 
+ struct utool_rt_bandwidth_info {
+ 	uint32_t port_id;
+@@ -900,8 +900,8 @@ static int utool_dl_trace_parse_rpc_pkt(struct fwctl_rpc_ub_out *dl_trace_out)
+ #define UTOOL_TRACE_LSM_NAME_BIT_START 24
+ #define UTOOL_TRACE_LSM_NAME_BIT_END 31
+ #define UTOOL_TRACE_TOTAL_CNT_INDEX 3
+-#define UTOOL_TRACE_FIXED_LEN 4
+-#define UTOOL_TRACE_SINGLE_TRACE_LEN 4
++#define UTOOL_TRACE_FIXED_LEN 4U
++#define UTOOL_TRACE_SINGLE_TRACE_LEN 4U
+ #define UTOOL_TRACE_SINGLE_TRACE_INDEX_1 1
+ #define UTOOL_TRACE_SINGLE_TRACE_INDEX_2 2
+ #define UTOOL_TRACE_SINGLE_TRACE_INDEX_3 3
+@@ -925,7 +925,7 @@ static int utool_dl_trace_parse_rpc_pkt(struct fwctl_rpc_ub_out *dl_trace_out)
+ 
+ 	total_count = dl_trace_data[UTOOL_TRACE_TOTAL_CNT_INDEX];
+ 	if ((UTOOL_TRACE_FIXED_LEN + total_count * UTOOL_TRACE_SINGLE_TRACE_LEN) > UTOOL_TRACE_MAX_CACHE) {
+-		utool_err_msg("Trace data count is illegal.\n");
++		utool_err_msg("Trace data count = %u is illegal.\n", total_count);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -1021,7 +1021,7 @@ static int utool_dl_perf_parse(struct fwctl_rpc_ub_out *out, uint32_t field_cnt,
+ 				break;
+ 				}
+ 				if (field_info[j].end < field_info[j].start) {
+-					utool_err_msg("Failed to parse pkt, start is bigger than end.\n");
++					utool_err_msg("Failed to parse pkt, start value is bigger than end value.\n");
+ 				return UTOOL_ERR_PARSE;
+ 				}
+ 
+@@ -1075,8 +1075,8 @@ static int utool_dl_perf_parse_rpc_pkt(struct fwctl_rpc_ub_out *dl_perf_out)
+ 	}
+ 
+ 	if (dl_perf_out->data_size != UTOOL_MAX_PORT * reg_cnt * sizeof(uint32_t)) {
+-		utool_err_msg("Failed to parse pkt, param is invalid data size = %u.\n",
+-			      dl_perf_out->data_size);
++		utool_err_msg("Failed to parse pkt, data size = %ubytes is invalid and it must be %zubytes.\n",
++			      dl_perf_out->data_size, UTOOL_MAX_PORT * reg_cnt * sizeof(uint32_t));
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -1086,17 +1086,17 @@ static int utool_dl_perf_parse_rpc_pkt(struct fwctl_rpc_ub_out *dl_perf_out)
+ static int utool_rt_bandwidth_parse_rpc_pkt(struct fwctl_rpc_ub_out *rt_bandwidth_out)
+ {
+ 	if (rt_bandwidth_out == NULL) {
+-		utool_err_msg("Failed to parse real time bandwidth, rt bandwidth out is null.\n");
++		utool_err_msg("rt bandwidth out is null.\n");
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 	if (rt_bandwidth_out->data_size !=
+ 		sizeof(struct utool_rt_bandwidth_info) * UTOOL_MAX_PORT) {
+-		utool_err_msg("Failed to parse real time bandwidth, data size = %u.\n",
+-			      rt_bandwidth_out->data_size);
++		utool_err_msg("data size = %ubytes and it must be %zubytes.\n",
++			      rt_bandwidth_out->data_size, sizeof(struct utool_rt_bandwidth_info) * UTOOL_MAX_PORT);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 	if (g_query_rt_bw_num >= UBCTL_MAX_QUERY_NUM) {
+-		utool_err_msg("Failed to parse real time bandwidth, query num = %u.\n", g_query_rt_bw_num);
++		utool_err_msg("query num = %u, it must be less than %u.\n", g_query_rt_bw_num, UBCTL_MAX_QUERY_NUM);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -1291,7 +1291,7 @@ static int utool_dl_cmd_func(struct utool_dev *dev, struct utool_cmd_param *para
+ 		func_pkt_exec.execute = func_table[i].execute;
+ 
+ 		if ((func_table[i].rpc_cmd == UTOOL_CMD_CONF_DL_BIST) && (param->value > 1)) {
+-			utool_err_msg("DL config bist value is invalid, must be 0 or 1.\n");
++			utool_err_msg("DL config bist value is invalid, it must be 0 or 1.\n");
+ 			return UTOOL_ERR_INVALID_PARAM;
+ 		}
+ 
+@@ -1335,10 +1335,10 @@ static int utool_dl_cmd_func(struct utool_dev *dev, struct utool_cmd_param *para
+ static int utool_dl_perf_start_func(struct utool_dev *dev, struct utool_cmd_param *param,
+ 				    struct utool_func_dispatch *func_table, uint32_t func_cnt)
+ {
+-#define UBCTL_ENABLE_FLAG 1
++#define UBCTL_ENABLE_FLAG 1U
+ 
+ 	if (param->value != UBCTL_ENABLE_FLAG) {
+-		utool_err_msg("ubctl query perf start enable value error.\n");
++		utool_err_msg("ubctl query perf start enable value error, it must be %u.\n", UBCTL_ENABLE_FLAG);
+ 		return UTOOL_ERR_INVALID_CMD;
+ 	}
+ 
+@@ -1361,7 +1361,7 @@ static int utool_dl_bandwidth_cmd(struct utool_dev *dev, struct utool_cmd_param
+ 	}
+ 
+ 	if (param->time > MAX_PERIOD_SIZE || param->time < MIN_PERIOD_SIZE) {
+-		utool_err_msg("Invalid time, time = %u.\n", param->time);
++		utool_err_msg("time = %u, it must be in [%u, %u].\n", param->time, MIN_PERIOD_SIZE, MAX_PERIOD_SIZE);
+ 		return UTOOL_ERR_INVALID_CMD;
+ 	}
+ 
+diff --git a/u_utool_dl.h b/protocol_layer/u_utool_dl.h
+similarity index 88%
+rename from u_utool_dl.h
+rename to protocol_layer/u_utool_dl.h
+index 700db3e..4adfa45 100644
+--- a/u_utool_dl.h
++++ b/protocol_layer/u_utool_dl.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_DL_H__
+ #define __U_UTOOL_DL_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_dl_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ int utool_dl_cal_data_len(uint32_t *dl_data_len);
+diff --git a/u_utool_dump.c b/protocol_layer/u_utool_dump.c
+similarity index 98%
+rename from u_utool_dump.c
+rename to protocol_layer/u_utool_dump.c
+index fe85205..c42f3a1 100644
+--- a/u_utool_dump.c
++++ b/protocol_layer/u_utool_dump.c
+@@ -6,16 +6,16 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
++#include "../common/u_utool_error.h"
++#include "../feature/u_utool_qos.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_ba.h"
+ #include "u_utool_dl.h"
+ #include "u_utool_nl.h"
+ #include "u_utool_tp.h"
+ #include "u_utool_ta.h"
+-#include "u_utool_qos.h"
+ #include "u_utool_ubommu.h"
+ #include "u_utool_ecc_2b.h"
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
+ #include "u_utool_dump.h"
+ 
+ static struct utool_dump_dp g_utool_dump_table[] = {
+diff --git a/u_utool_dump.h b/protocol_layer/u_utool_dump.h
+similarity index 89%
+rename from u_utool_dump.h
+rename to protocol_layer/u_utool_dump.h
+index a57d38b..20a1a6a 100644
+--- a/u_utool_dump.h
++++ b/protocol_layer/u_utool_dump.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_DUMP_H__
+ #define __U_UTOOL_DUMP_H__
+ 
+-#include "u_utool_common.h"
+-#include "u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
+ 
+ struct utool_dump_dp {
+ 	int (*utool_ly_cal_data_len)(uint32_t *data_len);
+diff --git a/u_utool_ecc_2b.c b/protocol_layer/u_utool_ecc_2b.c
+similarity index 99%
+rename from u_utool_ecc_2b.c
+rename to protocol_layer/u_utool_ecc_2b.c
+index 01066b4..c9ac426 100644
+--- a/u_utool_ecc_2b.c
++++ b/protocol_layer/u_utool_ecc_2b.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_ecc_2b.h"
+ 
+ static struct utool_field_info g_utool_ecc_2b_field_info[] = {
+diff --git a/u_utool_ecc_2b.h b/protocol_layer/u_utool_ecc_2b.h
+similarity index 89%
+rename from u_utool_ecc_2b.h
+rename to protocol_layer/u_utool_ecc_2b.h
+index 9d3fd4e..183bb52 100644
+--- a/u_utool_ecc_2b.h
++++ b/protocol_layer/u_utool_ecc_2b.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_ECC_2B_H__
+ #define __U_UTOOL_ECC_2B_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_ecc_2b_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ int utool_ecc_2b_cal_data_len(uint32_t *ecc_2b_data_len);
+diff --git a/u_utool_nl.c b/protocol_layer/u_utool_nl.c
+similarity index 99%
+rename from u_utool_nl.c
+rename to protocol_layer/u_utool_nl.c
+index bf55226..3af3baa 100644
+--- a/u_utool_nl.c
++++ b/protocol_layer/u_utool_nl.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_nl.h"
+ 
+ #define NL_PKT_STATS "pkt_stats"
+@@ -1026,7 +1026,7 @@ static int utool_nl_conf_ssu_vl_pkt_parse_rpc_pkt(struct fwctl_rpc_ub_out *nl_vl
+ 	struct fwctl_pkt_in_vl *nl_conf_vl_value;
+ 
+ 	if (nl_vl_out == NULL || nl_vl_out->data_size == 0) {
+-		utool_err_msg("Invalid data pointer in nl_vl_out.");
++		utool_err_msg("out data is null or empty pointer.");
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -1076,7 +1076,7 @@ static int utool_nl_cmd_func(struct utool_dev *dev, struct utool_cmd_param *para
+ 			}
+ 
+ 			if (func_table[i].create_pkt_in == NULL) {
+-				utool_err_msg("Failed to create nl func pkt in, create pkt in is NULL.\n");
++				utool_err_msg("Failed to create nl func pkt in, callback is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 
+@@ -1107,7 +1107,7 @@ static int utool_nl_cmd_conf(struct utool_dev *dev, struct utool_cmd_param *para
+ 
+ 	if (strcmp(param->func, NL_SSU_VL_PKT) == 0) {
+ 		if (param->value > UTOOL_SSU_VL_CONF_MAX_VALUE) {
+-			utool_err_msg("Invalid value, value should be in [0, %u].\n", UTOOL_SSU_VL_CONF_MAX_VALUE);
++			utool_err_msg("Invalid value, and it must be in [0, %u].\n", UTOOL_SSU_VL_CONF_MAX_VALUE);
+ 			return UTOOL_ERR_INVALID_PARAM;
+ 		}
+ 	}
+diff --git a/u_utool_nl.h b/protocol_layer/u_utool_nl.h
+similarity index 88%
+rename from u_utool_nl.h
+rename to protocol_layer/u_utool_nl.h
+index bffd69e..e651b68 100644
+--- a/u_utool_nl.h
++++ b/protocol_layer/u_utool_nl.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_NL_H__
+ #define __U_UTOOL_NL_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_nl_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ int utool_nl_cal_data_len(uint32_t *nl_data_len);
+diff --git a/u_utool_ta.c b/protocol_layer/u_utool_ta.c
+similarity index 99%
+rename from u_utool_ta.c
+rename to protocol_layer/u_utool_ta.c
+index 08ef084..3721021 100644
+--- a/u_utool_ta.c
++++ b/protocol_layer/u_utool_ta.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_ta.h"
+ 
+ #define TA_PKT_STATS "pkt_stats"
+@@ -955,7 +955,7 @@ static int utool_ta_cmd_func(struct utool_dev *dev, struct utool_cmd_param *para
+ 			}
+ 
+ 			if (func_table[i].create_pkt_in == NULL) {
+-				utool_err_msg("Failed to create ta func pkt in, create pkt in is NULL.\n");
++				utool_err_msg("Failed to create ta func pkt in, callback is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 
+diff --git a/u_utool_ta.h b/protocol_layer/u_utool_ta.h
+similarity index 88%
+rename from u_utool_ta.h
+rename to protocol_layer/u_utool_ta.h
+index 7eca1f2..d1522a9 100644
+--- a/u_utool_ta.h
++++ b/protocol_layer/u_utool_ta.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_TA_H__
+ #define __U_UTOOL_TA_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_ta_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ int utool_ta_cal_data_len(uint32_t *ta_data_len);
+diff --git a/u_utool_tp.c b/protocol_layer/u_utool_tp.c
+similarity index 99%
+rename from u_utool_tp.c
+rename to protocol_layer/u_utool_tp.c
+index b41dfbb..961f606 100644
+--- a/u_utool_tp.c
++++ b/protocol_layer/u_utool_tp.c
+@@ -13,8 +13,8 @@
+ #include <sys/stat.h>
+ #include <unistd.h>
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_tp_field_info.h"
+ #include "u_utool_tp.h"
+ 
+@@ -173,7 +173,7 @@ static int ubtool_tp_abn_copy_data(struct fwctl_rpc_ub_out *abn_stats_out, struc
+ 	abn_data = abn_stats_out->data;
+ 
+ 	if (data_cnt <= UTOOL_BONDING_PORT) {
+-		utool_err_msg("Invalid out data cnt: %u.\n", data_cnt);
++		utool_err_msg("Invalid out data cnt: %u, it must be bigger than %u.\n", data_cnt, UTOOL_BONDING_PORT);
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 	abn_data[0] = data[UTOOL_BONDING_PORT];
+diff --git a/u_utool_tp.h b/protocol_layer/u_utool_tp.h
+similarity index 88%
+rename from u_utool_tp.h
+rename to protocol_layer/u_utool_tp.h
+index c6c6ec2..cf6c6f7 100644
+--- a/u_utool_tp.h
++++ b/protocol_layer/u_utool_tp.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_TP_H__
+ #define __U_UTOOL_TP_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_tp_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ int utool_tp_cal_data_len(uint32_t *tp_data_len);
+diff --git a/u_utool_tp_field_info.c b/protocol_layer/u_utool_tp_field_info.c
+similarity index 99%
+rename from u_utool_tp_field_info.c
+rename to protocol_layer/u_utool_tp_field_info.c
+index 3becce2..ab3fbdc 100644
+--- a/u_utool_tp_field_info.c
++++ b/protocol_layer/u_utool_tp_field_info.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_tp_field_info.h"
+ 
+ struct utool_field_info g_utool_tp_pkt_stats_field_info[] = {
+diff --git a/u_utool_tp_field_info.h b/protocol_layer/u_utool_tp_field_info.h
+similarity index 97%
+rename from u_utool_tp_field_info.h
+rename to protocol_layer/u_utool_tp_field_info.h
+index f0ecc91..e9d1863 100644
+--- a/u_utool_tp_field_info.h
++++ b/protocol_layer/u_utool_tp_field_info.h
+@@ -9,7 +9,7 @@
+ #ifndef __U_UTOOL_TP_FIELD_INFO_H__
+ #define __U_UTOOL_TP_FIELD_INFO_H__
+ 
+-#include "u_utool_pkt.h"
++#include "../u_utool_pkt.h"
+ 
+ #define TP_PKT_STATS_FIELD_INFO "utool_tp_pkt_stats_field_info"
+ #define TP_ABN_STATS_FIELD_INFO "utool_tp_abn_stats_field_info"
+diff --git a/u_utool_ubommu.c b/protocol_layer/u_utool_ubommu.c
+similarity index 97%
+rename from u_utool_ubommu.c
+rename to protocol_layer/u_utool_ubommu.c
+index dd4ae90..f6d672e 100644
+--- a/u_utool_ubommu.c
++++ b/protocol_layer/u_utool_ubommu.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_ubommu.h"
+ 
+ static struct utool_field_info g_utool_ubommu_field[] = {
+@@ -131,7 +131,6 @@ int utool_ubommu_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *par
+ 	for (i = 0; i < cmd_ubommu_cnt; i++) {
+ 		if (param->flags == utool_cmd_ubommu_table[i].flags) {
+ 			if (utool_cmd_ubommu_table[i].execute == NULL) {
+-				utool_err_msg("Failed to dispatch ubommu, execute is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 
+diff --git a/u_utool_ubommu.h b/protocol_layer/u_utool_ubommu.h
+similarity index 89%
+rename from u_utool_ubommu.h
+rename to protocol_layer/u_utool_ubommu.h
+index f37c4f1..72ba1ed 100644
+--- a/u_utool_ubommu.h
++++ b/protocol_layer/u_utool_ubommu.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_UBOMMU_H__
+ #define __U_UTOOL_UBOMMU_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ #include "u_utool_ubommu.h"
+ 
+ int utool_ubommu_cal_data_len(uint32_t *ubommu_data_len);
+diff --git a/u_utool_ummu.c b/protocol_layer/u_utool_ummu.c
+similarity index 99%
+rename from u_utool_ummu.c
+rename to protocol_layer/u_utool_ummu.c
+index 03bc530..52b712e 100644
+--- a/u_utool_ummu.c
++++ b/protocol_layer/u_utool_ummu.c
+@@ -6,8 +6,8 @@
+  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+  */
+ 
+-#include "u_utool_pkt.h"
+-#include "u_utool_error.h"
++#include "../common/u_utool_error.h"
++#include "../u_utool_pkt.h"
+ #include "u_utool_ummu.h"
+ 
+ #define UMMU_FUNC_REG_COUNT 4U
+@@ -842,7 +842,7 @@ static int utool_ummu_cmd_func(struct utool_dev *dev, struct utool_cmd_param *pa
+ 	uint32_t i;
+ 
+ 	if ((strcmp(param->func, UMMU_SYNC_CONFIG) == 0) && (param->value > 1)) {
+-		utool_err_msg("Ummu config value is invalid, must be 0 or 1.\n");
++		utool_err_msg("Ummu config value is invalid, it must be 0 or 1.\n");
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -853,7 +853,7 @@ static int utool_ummu_cmd_func(struct utool_dev *dev, struct utool_cmd_param *pa
+ 			func_pkt_exec.data_len = func_table[i].data_len;
+ 
+ 			if (func_table[i].create_pkt_in == NULL) {
+-				utool_err_msg("Create pkt in function is NULL.\n");
++				utool_err_msg("Failed to create pkt in, callback is NULL.\n");
+ 				return UTOOL_ERR_INVALID_PARAM;
+ 			}
+ 			pkt_in = func_table[i].create_pkt_in(&pkt_in_len, param);
+diff --git a/u_utool_ummu.h b/protocol_layer/u_utool_ummu.h
+similarity index 87%
+rename from u_utool_ummu.h
+rename to protocol_layer/u_utool_ummu.h
+index 881cd55..9a7d471 100644
+--- a/u_utool_ummu.h
++++ b/protocol_layer/u_utool_ummu.h
+@@ -9,8 +9,8 @@
+ #ifndef __U_UTOOL_UMMU_H__
+ #define __U_UTOOL_UMMU_H__
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "../common/u_utool_fwctl.h"
++#include "../common/u_utool_common.h"
+ 
+ int utool_ummu_cmd_dispatch(struct utool_dev *dev, struct utool_cmd_param *param);
+ int utool_ummu_parse_rpc_pkt(struct fwctl_rpc_ub_out *ummu_out);
+diff --git a/u_utool_dispatch.c b/u_utool_dispatch.c
+index 6cf3b31..7dfb401 100644
+--- a/u_utool_dispatch.c
++++ b/u_utool_dispatch.c
+@@ -10,26 +10,26 @@
+ #include <limits.h>
+ #include <errno.h>
+ 
+-#include "u_utool_dl.h"
+-#include "u_utool_nl.h"
+-#include "u_utool_ta.h"
+-#include "u_utool_tp.h"
+-#include "u_utool_ba.h"
+-#include "u_utool_qos.h"
+-#include "u_utool_port_info.h"
+-#include "u_utool_ubommu.h"
+-#include "u_utool_ecc_2b.h"
+-#include "u_utool_uboe.h"
+-#include "u_utool_debugfs.h"
+-#include "u_utool_ummu.h"
+-#include "u_utool_msg.h"
+-#include "u_utool_queue.h"
+-#include "u_utool_fw_version.h"
+-#include "u_utool_port_pkt.h"
+-#include "u_utool_dump.h"
+-#include "u_utool_error.h"
+-#include "u_utool_common.h"
+-#include "u_utool_port_link.h"
++#include "./common/u_utool_error.h"
++#include "./common/u_utool_common.h"
++#include "./protocol_layer/u_utool_dump.h"
++#include "./protocol_layer/u_utool_dl.h"
++#include "./protocol_layer/u_utool_nl.h"
++#include "./protocol_layer/u_utool_ta.h"
++#include "./protocol_layer/u_utool_tp.h"
++#include "./protocol_layer/u_utool_ba.h"
++#include "./protocol_layer/u_utool_ubommu.h"
++#include "./protocol_layer/u_utool_ummu.h"
++#include "./protocol_layer/u_utool_ecc_2b.h"
++#include "./feature/u_utool_qos.h"
++#include "./feature/u_utool_port_info.h"
++#include "./feature/u_utool_uboe.h"
++#include "./feature/u_utool_debugfs.h"
++#include "./feature/u_utool_msg.h"
++#include "./feature/u_utool_queue.h"
++#include "./feature/u_utool_port_link.h"
++#include "./feature/u_utool_fw_version.h"
++#include "./feature/u_utool_port_pkt.h"
+ #include "u_utool_dispatch.h"
+ 
+ static struct utool_cmd_param g_utool_cmd_param = {};
+@@ -136,7 +136,7 @@ static int utool_cmd_select_func(char *param)
+ 	g_utool_cmd_param.flags |= UTOOL_FLAG_F;
+ 
+ 	if (strlen(param) >= sizeof(g_utool_cmd_param.func)) {
+-		utool_err_msg("Func name %s too long.\n", param);
++		utool_err_msg("Func name %s is too long, it must be less than %dbytes.\n", param, UBCTL_ARG_MAX_LEN);
+ 		return UTOOL_ERR_INVALID_CMD;
+ 	}
+ 
+@@ -151,7 +151,7 @@ static int utool_cmd_select_dev(char *param)
+ 	g_utool_cmd_param.flags |= UTOOL_FLAG_DEV;
+ 
+ 	if (strlen(param) >= sizeof(g_utool_cmd_param.device)) {
+-		utool_err_msg("Device name(%s) is too long, it must be less than %ubytes.\n",
++		utool_err_msg("Device name(%s) is too long, it must be less than %dbytes.\n",
+ 			      param, UBCTL_ARG_MAX_LEN);
+ 		return UTOOL_ERR_INVALID_CMD;
+ 	}
+diff --git a/u_utool_dispatch.h b/u_utool_dispatch.h
+index 6eb3ef9..51b3904 100644
+--- a/u_utool_dispatch.h
++++ b/u_utool_dispatch.h
+@@ -9,7 +9,7 @@
+ #ifndef __U_UTOOL_DISPATCH_H__
+ #define __U_UTOOL_DISPATCH_H__
+ 
+-#include "u_utool_common.h"
++#include "./common/u_utool_common.h"
+ 
+ int utool_transform_str(char *param, uint32_t *value);
+ int utool_cmd_select(struct utool_dev *dev);
+diff --git a/u_utool_main.c b/u_utool_main.c
+index 7148373..ce12da8 100644
+--- a/u_utool_main.c
++++ b/u_utool_main.c
+@@ -13,10 +13,10 @@
+ #include <errno.h>
+ #include <unistd.h>
+ 
+-#include "u_utool_error.h"
+-#include "u_utool_common.h"
++#include "./common/u_utool_error.h"
++#include "./common/u_utool_common.h"
++#include "./feature/u_utool_io_die.h"
+ #include "u_utool_dispatch.h"
+-#include "u_utool_io_die.h"
+ 
+ #define UTOOL_INVALID_FD (-1)
+ 
+@@ -31,7 +31,7 @@ static void utool_help(void)
+ {
+ 	utool_info_msg("Usage: ubctl <-c ${chip_id}> <-d ${ub_ctl_id}> <-m ${module}>\n"
+ 		       "       [-f ${function}] [-p ${port}] [-e ${value}] [-u ${ummu_id}] [-i ${index}]\n"
+-		       "       [-t ${time}] [-dev ${device}] [-file ${file}] [-h] [ls]"
++		       "       [-t ${time}] [-dev ${device}] [-file ${file}] [-h] [ls]\n\n"
+ 		       "options:\n\n"
+ 		       "  -c $chip_id: chip id, chip id and ub ctl id  are used to find the valid device.\n\n"
+ 		       "  -d $ub_ctl_id : ub ctl id, chip id and ub ctl id  are used to find the valid device.\n\n"
+@@ -373,7 +373,8 @@ static int utool_check_arg(int argc, char **argv)
+ 
+ 		argv_len = strlen(argv[i]);
+ 		if (argv_len > UBCTL_FILE_NAME_MAX_LEN) {
+-			utool_err_msg("The input parameter length is too long.\n");
++			utool_err_msg("The input param length = %zubytes is bigger than maximum %ubytes.\n",
++				      argv_len, UBCTL_FILE_NAME_MAX_LEN);
+ 			return UTOOL_ERR;
+ 		}
+ 
+diff --git a/u_utool_pkt.c b/u_utool_pkt.c
+index 716b2d9..e5413ed 100644
+--- a/u_utool_pkt.c
++++ b/u_utool_pkt.c
+@@ -9,7 +9,7 @@
+ #include <inttypes.h>
+ #include <errno.h>
+ 
+-#include "u_utool_error.h"
++#include "./common/u_utool_error.h"
+ #include "u_utool_pkt.h"
+ 
+ static void utool_delete_substr(char *str, const char *substr)
+@@ -66,8 +66,7 @@ static int utool_parse_param_check(struct fwctl_rpc_ub_out *out, struct utool_fi
+ 	}
+ 
+ 	if (out->data_size == 0) {
+-		utool_err_msg("Failed to parse pkt, param is invalid data_size==0(%d).\n",
+-			      (out->data_size == 0));
++		utool_err_msg("Failed to parse pkt, out data size is 0.\n");
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -113,7 +112,8 @@ static inline void utool_pkt_print(bool is_reserved, const char *reg_name, uint6
+ static int utool_cal_func_reg_len_check(const char *func_name, struct utool_cal_reg_func_param *cal_reg_param)
+ {
+ 	if (func_name == NULL || cal_reg_param == NULL) {
+-		utool_err_msg("Param is invalid, input is null;");
++		utool_err_msg("Param is invalid, func_name == NULL(%d), cal_reg_param == NULL(%d).\n",
++			      (func_name == NULL), (cal_reg_param == NULL));
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -150,8 +150,7 @@ int utool_cal_func_reg_len(const char *func_name, struct utool_cal_reg_func_para
+ 			continue;
+ 		}
+ 
+-		ret = utool_cal_reg_cnt(reg_table[i].field_info,
+-								reg_table[i].field_cnt, &func_reg_cnt);
++		ret = utool_cal_reg_cnt(reg_table[i].field_info, reg_table[i].field_cnt, &func_reg_cnt);
+ 		if (ret != UTOOL_OK) {
+ 			utool_err_msg("Failed to calculate reg cnt, func name = %s, ret = %d.\n",
+ 				      reg_table[i].func, ret);
+@@ -202,8 +201,7 @@ static int utool_module_parse_input_check(struct fwctl_rpc_ub_out *out,
+ 	}
+ 
+ 	if (out->data_size == 0) {
+-		utool_err_msg("Failed to split module, param is invalid data_size==0(%d).\n",
+-			      (out->data_size == 0));
++		utool_err_msg("Failed to split module, out data size is 0.\n");
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -259,14 +257,14 @@ int utool_module_parse(struct fwctl_rpc_ub_out *out,
+ 		memcpy(func_pkt_out->data, pos_index, func_pkt_out->data_size);
+ 
+ 		if (func_table[i].execute == NULL) {
+-			utool_err_msg("The func %s's excute is NULL.\n", func_table[i].func);
++			utool_err_msg("The func %s's callback is NULL.\n", func_table[i].func);
+ 			ret = UTOOL_ERR;
+ 			break;
+ 		}
+ 
+ 		ret = func_table[i].execute(func_pkt_out);
+ 		if (ret != UTOOL_OK) {
+-			utool_err_msg("Failed to parse all pkt, %s parse is error, ret = %d.\n",
++			utool_err_msg("Failed to parse all pkt,func name: %s, ret = %d.\n",
+ 				      func_table[i].func, ret);
+ 			break;
+ 		}
+@@ -352,7 +350,7 @@ static int utool_operation_param_check(struct utool_dev *dev, void *pkt_in,
+ 	}
+ 
+ 	if (pkt_exec->execute == NULL) {
+-		utool_err_msg("Failed to build pkt, pkt_exec execute is NULL.\n");
++		utool_err_msg("Failed to build pkt, callback is NULL.\n");
+ 		return UTOOL_ERR_INVALID_PARAM;
+ 	}
+ 
+@@ -444,7 +442,7 @@ int utool_pkt_operation(struct utool_dev *dev, void *pkt_in, uint32_t pkt_in_len
+ 		pkt_out_len = (uint32_t)(sizeof(struct fwctl_rpc_ub_out) + pkt_exec->data_len);
+ 		pkt_out = (struct fwctl_rpc_ub_out *)UTOOL_MALLOC(pkt_out_len);
+ 		if (pkt_out == NULL) {
+-			utool_err_msg("Failed to malloc space for pkt_out.\n");
++			utool_err_msg("Failed to malloc space for pkt out.\n");
+ 			ret = UTOOL_ERR_MALLOC;
+ 			break;
+ 		}
+@@ -461,13 +459,13 @@ int utool_pkt_operation(struct utool_dev *dev, void *pkt_in, uint32_t pkt_in_len
+ 		}
+ 
+ 		if (ret != UTOOL_OK) {
+-			utool_err_msg("Failed to execute cmd, utool_cmd_exec, ret = %d\n", ret);
++			utool_err_msg("Failed to execute cmd, ret = %d\n", ret);
+ 			break;
+ 		}
+ 
+ 		if ((pkt_out->data_size != pkt_exec->data_len) &&
+ 		    (pkt_exec->rpc_cmd != UTOOL_CMD_QUERY_IO_DIE_PORT_INFO)) {
+-			utool_err_msg("Failed to get pkt_out data, datasize is err, pkt out data_size = %u, data len = %u.\n",
++			utool_err_msg("Failed to get pkt out data. out data size = %ubytes, data len = %ubytes.\n",
+ 				      pkt_out->data_size, pkt_exec->data_len);
+ 			ret = UTOOL_ERR;
+ 			break;
+diff --git a/u_utool_pkt.h b/u_utool_pkt.h
+index 440e540..0dfd858 100644
+--- a/u_utool_pkt.h
++++ b/u_utool_pkt.h
+@@ -11,8 +11,8 @@
+ 
+ #include <stdbool.h>
+ 
+-#include "u_utool_fwctl.h"
+-#include "u_utool_common.h"
++#include "./common/u_utool_fwctl.h"
++#include "./common/u_utool_common.h"
+ 
+ #define UTOOL_FIELD_INDEX_START 0
+ #define UTOOL_FIELD_INDEX_1 1
+-- 
+2.50.1 (Apple Git-155)
+
